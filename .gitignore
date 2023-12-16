@@ -2,3 +2,4 @@
 *.pdb
 x64
 .vs
+HiGHS.log
