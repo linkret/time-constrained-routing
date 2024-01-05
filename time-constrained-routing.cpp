@@ -253,29 +253,41 @@ void input_customers() {
 	depot = customers[0];
 }
 
-void solve_greedy() {
+solution solve_greedy() {
 	std::vector<route> routes;
 	
-	std::set<int> cs;
+	std::set<int> remaining_cs;
 	for (const auto& c : customers)
-		if (c.i > 0) cs.insert(c.i);
+		if (c.i > 0) remaining_cs.insert(c.i);
 
 	double pathlen = 0;
 
-	while (cs.size() != 0) {
+	while (remaining_cs.size() != 0) {
 		route r;
+		std::set<int> cs = remaining_cs;
 
 		while (true) {
 			int best_c = -1;
 			double min_fitness = 1e18;
 
-			for (int c : cs) {
+			for (auto it = cs.begin(); it != cs.end();) {
+				auto c = *it;
 				r.add_customer(c);
-				auto f = r.fitness();
-				if (r.is_valid() && f < min_fitness) {
-					min_fitness = f;
+				auto dr = r.drive();
+				if (dr.is_valid() && dr.fitness() < min_fitness) {
+					min_fitness = dr.fitness();
 					best_c = c;
 				}
+
+				// if we already can't fit customer C into our route, we will never be able to in the future
+				if (!dr.is_valid()) {
+					it = cs.erase(it);
+					//it++;
+				}
+				else {
+					it++;
+				}
+
 				r.remove_customer(c);
 			}
 
@@ -283,6 +295,7 @@ void solve_greedy() {
 				break;
 
 			r.add_customer(best_c);
+			remaining_cs.erase(best_c);
 			cs.erase(best_c);
 		}
 
@@ -301,6 +314,8 @@ void solve_greedy() {
 		std::cout << "Writing new solution to disk..." << std::endl;
 		sol.to_file(output_path);
 	}
+
+	return sol;
 }
 
 int main(int argc, char** argv) {
