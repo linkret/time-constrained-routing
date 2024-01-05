@@ -27,7 +27,6 @@ typedef std::pair<int, int> pii;
 
 double distance(pii a, pii b) {
 	auto d = sqrt(1.0L * (a.x - b.x) * (a.x - b.x) + 1.0L * (a.y - b.y) * (a.y - b.y));
-	// return ceil(d * 100) / 100.0L; // only two decimals? probably not
 	return d;
 }
 
@@ -75,17 +74,20 @@ struct route {
 		int best_pos = 1;
 		double min_fitness = 1e18;
 		
-		for (int i = 1; i < to_visit.size(); i++) {
-			to_visit.insert(to_visit.begin() + i, c);
+		to_visit.insert(to_visit.begin() + 1, c);
+
+		for (int i = 1; i < to_visit.size() - 1; i++) {
 			auto f = fitness();
 			if (f < min_fitness) {
 				min_fitness = f;
 				best_pos = i;
 			}
-			to_visit.erase(to_visit.begin() + i);
+			std::swap(to_visit[i], to_visit[i + 1]);
 		}
-
+		
+		to_visit.pop_back();
 		to_visit.insert(to_visit.begin() + best_pos, c);
+
 		return is_valid();
 	}
 
@@ -101,11 +103,13 @@ struct route {
 		double fitness() const {
 			double fitness = 0;
 			fitness += t * 0.01;
-			fitness += pathlen * 0.0001;
+			fitness += pathlen * 0.00005;
 			fitness += late_cnt * 100;
 			fitness += late_sum * 1;
 			if (capacity > max_capacity)
 				fitness += (capacity - max_capacity) * 10;
+			else
+				fitness += (max_capacity - capacity) * 0.005;
 			return fitness;
 		}
 
@@ -282,7 +286,6 @@ solution solve_greedy() {
 				// if we already can't fit customer C into our route, we will never be able to in the future
 				if (!dr.is_valid()) {
 					it = cs.erase(it);
-					//it++;
 				}
 				else {
 					it++;
@@ -314,6 +317,11 @@ solution solve_greedy() {
 		std::cout << "Writing new solution to disk..." << std::endl;
 		sol.to_file(output_path);
 	}
+
+	//for (const auto& r : routes) {
+	//	std::cout << r.drive().capacity << " ";
+	//}
+	//std::cout << std::endl;
 
 	return sol;
 }
