@@ -103,8 +103,8 @@ struct route {
 		double fitness() const {
 			double fitness = 0;
 			fitness += t * 0.01;
-			fitness += pathlen * 0.00005;
-			fitness += late_cnt * 100;
+			fitness += pathlen * 0.5;
+			//fitness += late_cnt * 10;
 			fitness += late_sum * 1;
 			if (capacity > max_capacity)
 				fitness += (capacity - max_capacity) * 10;
