@@ -5,19 +5,21 @@ Solving "The Capacitated Vehicle Routing Problem with Time Windows" (CVRPTW)
 
 # Usage
 
-Solver:
+##Solver:
 ```
 time-constrained-routing.exe ./instances/inst1.txt
 ```
 
 It automatically saves the result in the `res` folder, but you can specify the output file as the second command line argument.
 
-Validator:
+##Validator:
 ```
 python validator/validator.py -i instances/inst6.txt -o res/inst6.txt
 ```
 
-Input visualizer:
+##Input visualizer:
 ```
 python plot.py instances/inst1.txt
+
+python plot_solutions.py instances/inst1.txt res/inst1.txt
 ```
