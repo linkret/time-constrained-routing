@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstdlib>
 #include <vector>
 #include <cmath>
 #include <chrono>
@@ -6,6 +7,7 @@
 #include <sstream>
 #include <set>
 #include <cassert>
+#include <thread>
 
 #include <fstream>
 #include <filesystem>
@@ -29,6 +31,9 @@ double distance(pii a, pii b) {
 	auto d = sqrt(1.0L * (a.x - b.x) * (a.x - b.x) + 1.0L * (a.y - b.y) * (a.y - b.y));
 	return d;
 }
+ 
+const int N = 5000; // Important, code will crash if customers.size() > N
+double distances[N][N]; // precompute, to avoid slow sqrt() calls in runtime
 
 std::chrono::milliseconds get_time() {
 	using namespace std::chrono;
@@ -56,6 +61,7 @@ struct result {
 
 struct route {
 	std::vector<int> to_visit; // customers
+	int capacity = 0;
 
 	route() {
 		to_visit.push_back(0); // depot
@@ -70,7 +76,6 @@ struct route {
 
 	// greedily inserts the new customer at the position which results in the best fitness
 	bool add_customer(int c) {
-
 		int best_pos = 1;
 		double min_fitness = 1e18;
 		
@@ -87,19 +92,23 @@ struct route {
 		
 		to_visit.pop_back();
 		to_visit.insert(to_visit.begin() + best_pos, c);
-
+		capacity += customers[c].capacity;
 		return is_valid();
 	}
 
 	void remove_customer(int c) {
-		to_visit.erase(std::find(to_visit.begin(), to_visit.end(), c));
+		auto it = std::find(to_visit.begin(), to_visit.end(), c);
+		if (it != to_visit.end()) {
+			capacity -= customers[c].capacity;
+			to_visit.erase(it);
+		}
 	}
 
 	struct drive_result {
-		double t, pathlen, late_sum;
-		int late_cnt, capacity;
+		double t = 0, pathlen = 0, late_sum = 0;
+		int late_cnt = 0, capacity = 0;
 
-		// different parameters have different weights. Most important to never be late?
+		// different parameters have different weights
 		double fitness() const {
 			double fitness = 0;
 			fitness += t * 0.01;
@@ -116,26 +125,26 @@ struct route {
 		bool is_valid() const {
 			return late_cnt == 0 && capacity <= max_capacity;
 		}
-	};
+	} last_run; // optimization, might cause trouble
 
 	// we could permute the customer order, like TSP, to minimise fitness
-	double fitness() const { return drive().fitness(); }
-	double is_valid() const { return drive().is_valid(); }
-	double length() const { return drive().pathlen; }
+	double fitness() { return drive().fitness(); }
+	double is_valid() { return drive().is_valid(); }
+	double length() { return drive().pathlen; }
 
-	drive_result drive() const {
-		pii pos(depot.x, depot.y);
+	const drive_result& drive() {
+		int pos = 0; // depot
 		double t = 0, pathlen = 0, late_sum = 0;
-		int late_cnt = 0, capacity = 0;
+		int late_cnt = 0;
 
 		for (int cid : to_visit) {
 			const auto& c = customers[cid];
 
-			double dist = distance(pos, { c.x, c.y });
-			pos = { c.x, c.y };
+			double dist = distances[pos][c.i];
+			pos = c.i;
 			t += ceil(dist);
 			pathlen += dist;
-			capacity += c.capacity;
+
 			if (t < c.t1)
 				t = c.t1;
 			if (t > c.t2) {
@@ -147,20 +156,21 @@ struct route {
 
 		//std::cout << t << " " << pathlen << " " << late_sum << " " << late_cnt << " " << capacity << "\n";
 
-		return { t, pathlen, late_sum, late_cnt, capacity };
+		last_run = { t, pathlen, late_sum, late_cnt, capacity };
+		return last_run;
 	}
 
 	std::string to_string() const {
 		std::stringstream ss;
-		pii pos(depot.x, depot.y);
+		int pos = 0;
 		double t = 0;
 
 		for (int i = 0; i < to_visit.size(); i++) {
 			const auto& c = customers[to_visit[i]];
 
-			double dist = distance(pos, { c.x, c.y });
+			double dist = distances[pos][c.i];
 			t += ceil(dist);
-			pos = { c.x, c.y };
+			pos = c.i;
 
 			if (t < c.t1)
 				t = c.t1;
@@ -255,6 +265,12 @@ void input_customers() {
 		customers.push_back({ i, x, y, c, t1, t2, st });
 
 	depot = customers[0];
+
+	for (int i = 0; i < customers.size(); i++) {
+		for (int j = 0; j < customers.size(); j++) {
+			distances[i][j] = distance({ customers[i].x, customers[i].y }, { customers[j].x, customers[j].y });
+		}
+	}
 }
 
 solution solve_greedy() {
@@ -275,7 +291,13 @@ solution solve_greedy() {
 			double min_fitness = 1e18;
 
 			for (auto it = cs.begin(); it != cs.end();) {
-				auto c = *it;
+				const auto& c = *it;
+
+				if (r.capacity + customers[c].capacity > max_capacity) {
+					it++;
+					continue;
+				}
+
 				r.add_customer(c);
 				auto dr = r.drive();
 				if (dr.is_valid() && dr.fitness() < min_fitness) {
@@ -302,7 +324,7 @@ solution solve_greedy() {
 			cs.erase(best_c);
 		}
 
-		pathlen += r.length(); // kinda slow, drives again
+		pathlen += r.length();
 		assert(r.is_valid());
 		routes.push_back(std::move(r));
 	}
