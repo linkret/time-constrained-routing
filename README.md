@@ -7,8 +7,10 @@ Solving "The Capacitated Vehicle Routing Problem with Time Windows" (CVRPTW)
 
 Solver:
 ```
-time-constrained-routing < instances/inst6.txt > res/inst6.txt
+time-constrained-routing.exe ./instances/inst1.txt
 ```
+
+It automatically saves the result in the `res` folder, but you can specify the output file as the second command line argument.
 
 Validator:
 ```

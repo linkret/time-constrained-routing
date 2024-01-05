@@ -7,10 +7,17 @@
 #include <set>
 #include <cassert>
 
+#include <fstream>
+#include <filesystem>
+
+struct solution;
+
 // Global vars
 
 std::chrono::time_point<std::chrono::steady_clock> start_time;
 int max_routes, max_capacity;
+
+std::filesystem::path input_path, output_path;
 
 // Helpers
 
@@ -54,6 +61,12 @@ struct route {
 	route() {
 		to_visit.push_back(0); // depot
 		to_visit.push_back(0);
+	}
+
+	route(std::vector<int> to_visit) : to_visit(to_visit) {
+		assert(to_visit.size() >= 2);
+		assert(to_visit.front() == 0);
+		assert(to_visit.back() == 0);
 	}
 
 	// greedily inserts the new customer at the position which results in the best fitness
@@ -159,37 +172,88 @@ struct route {
 };
 
 struct solution {
+	double distance;
 	std::vector<route> routes;
+
+	solution() : distance(1e18) {}
+	solution(std::vector<route> routes, double distance) : routes(routes), distance(distance) {}
+
+	bool empty() { return routes.empty(); }
+
+	static solution from_file(const std::filesystem::path& filename) {
+		using std::string;
+
+		std::ifstream file(filename);
+		int n_routes = 0;
+		file >> n_routes;
+
+		std::vector<route> routes;
+
+		for (int i = 0; i < n_routes; i++) {
+			std::string line;
+			file.ignore();
+			std::getline(file, line);
+
+			std::vector<int> r;
+			for (int pos = line.find(":", 0); pos != string::npos; pos = line.find("->", pos+1)) {
+				int v = atoi(line.data() + pos + 2); // +2 to skip over "->"
+				r.push_back(v);
+			}
+
+			routes.push_back(r);
+		}
+
+		double distance_sum = 0;
+		file >> distance_sum;
+
+		return solution(routes, distance_sum);
+	}
+
+	void to_file(const std::filesystem::path& filename) {
+		std::ofstream file(filename);
+
+		file << routes.size() << "\n";
+		for (int i = 0; i < routes.size(); i++) {
+			file << i + 1 << ": " << routes[i].to_string() << "\n";
+		}
+
+		file << std::fixed << std::setprecision(2) << distance << '\n';
+	}
+
+	bool operator<(const solution& s2) {
+		if (routes.size() != s2.routes.size())
+			return routes.size() < s2.routes.size();
+		return distance < s2.distance && abs(distance - s2.distance) > 0.1; // big epsilon
+	}
 
 	// TODO: heuristically shuffling customers back and forth between different routes
 	//		 The end goal is to minimise the final number of routes
 };
 
-void input() {
+solution best_solution;
+
+void input_customers() {
 	start_time = std::chrono::steady_clock::now();
-	// TODO: open file from cmd args? would make it easier to use Debugger
+	
+	std::ifstream file(input_path);
 	std::string ignore;
 
-	std::getline(std::cin, ignore); std::cin.ignore();
-	std::getline(std::cin, ignore);
-	std::cin >> max_routes >> max_capacity;
+	std::getline(file, ignore); file.ignore();
+	std::getline(file, ignore);
+	file >> max_routes >> max_capacity;
 
-	std::getline(std::cin, ignore); std::cin.ignore();
-	std::getline(std::cin, ignore); std::cin.ignore();
-	std::getline(std::cin, ignore);
+	std::getline(file, ignore); file.ignore();
+	std::getline(file, ignore); file.ignore();
+	std::getline(file, ignore);
 
 	int i, x, y, c, t1, t2, st;
-	while (std::cin >> i >> x >> y >> c >> t1 >> t2 >> st)
+	while (file >> i >> x >> y >> c >> t1 >> t2 >> st)
 		customers.push_back({ i, x, y, c, t1, t2, st });
 
 	depot = customers[0];
-	//customers.erase(customers.begin());
-
-	//std::cout << ignore << " " << max_routes << " " << max_capacity << "\n";
-	//std::cout << customers.size();
 }
 
-void solve() {
+void solve_greedy() {
 	std::vector<route> routes;
 	
 	std::set<int> cs;
@@ -225,23 +289,45 @@ void solve() {
 		pathlen += r.length(); // kinda slow, drives again
 		assert(r.is_valid());
 		routes.push_back(std::move(r));
-		routes.back().drive();
 	}
 
-	std::cout << routes.size() << "\n";
-	for (int i = 0; i < routes.size(); i++) {
-		std::cout << i+1 << ": " << routes[i].to_string() << "\n";
+	solution sol(routes, pathlen);
+
+	std::cout
+		<< "New solution: num_routes = " << sol.routes.size()
+		<< ", pathlen = " << sol.distance << std::endl;
+
+	if (best_solution.empty() || sol < best_solution) {
+		std::cout << "Writing new solution to disk..." << std::endl;
+		sol.to_file(output_path);
 	}
-
-	// TODO: print 'pathlen' with comma, which is ugly ?
-	//double tmp;
-	//std::cout << int(pathlen) << ',' << floor(modf(pathlen, &tmp) * 100.0L) << '\n';
-
-	std::cout << pathlen << '\n';
 }
 
-int main()
-{
-	input();
-	solve();
+int main(int argc, char** argv) {
+	if (argc < 2) {
+		std::cerr << "Usage: " << argv[0] << " <input_path> <optional output_path>" << std::endl;
+		return 1;
+	}
+
+	input_path = std::filesystem::path(argv[1]);
+
+	if (argc == 3)
+		output_path = std::filesystem::path(argv[2]);
+	else {
+		auto fname = input_path.filename().string();
+		// transform instances/inst1.txt into res/inst1.txt, if the output_path was not given
+		output_path = input_path.parent_path().parent_path().append("res").append(fname);
+	}
+	
+	if (std::filesystem::exists(output_path)) {
+		best_solution = solution::from_file(output_path);
+		std::cerr 
+			<< "Old solution: num_routes = " << best_solution.routes.size() 
+			<< ", pathlen = " << best_solution.distance << std::endl;
+	}
+
+	input_customers();
+	solve_greedy();
+
+	return 0;
 }
