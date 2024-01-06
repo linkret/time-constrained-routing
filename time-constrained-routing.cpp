@@ -64,8 +64,8 @@ struct route {
 	int capacity = 0;
 
 	route() {
-		to_visit.push_back(0); // depot
-		to_visit.push_back(0);
+		to_visit.resize(2); // depot
+		//visit_time.resize(2);
 	}
 
 	route(std::vector<int> to_visit) : to_visit(to_visit) {
@@ -80,9 +80,12 @@ struct route {
 		double min_fitness = 1e18;
 		
 		to_visit.insert(to_visit.begin() + 1, c);
+		int i = 1;
 
-		for (int i = 1; i < to_visit.size() - 1; i++) {
-			auto f = fitness();
+		for (; i < to_visit.size() - 1; i++) {
+			if (customers[c].t2 < customers[to_visit[i-1]].t1) // impossible
+				break;
+			auto f = fitness(); // slow, visits entire route
 			if (f < min_fitness) {
 				min_fitness = f;
 				best_pos = i;
@@ -90,10 +93,34 @@ struct route {
 			std::swap(to_visit[i], to_visit[i + 1]);
 		}
 		
-		to_visit.pop_back();
+		to_visit.erase(to_visit.begin() + i);
 		to_visit.insert(to_visit.begin() + best_pos, c);
 		capacity += customers[c].capacity;
 		return is_valid();
+	}
+
+	void shorten() {
+		// pairwise swaps order of customers to decrease distance
+
+		double best_dist = last_run.pathlen; // can also try best fitness?
+
+		bool moved = true;
+		while (moved) {
+			moved = false;
+			for (int i = 1; i < to_visit.size()-1; i++) {
+				for (int j = i + 1; j < to_visit.size() - 1; j++) {
+					std::swap(to_visit[i], to_visit[j]);
+					auto dr = drive();
+					if (dr.is_valid() && dr.pathlen < best_dist) {
+						best_dist = dr.pathlen;
+						moved = true;
+					}
+					else {
+						std::swap(to_visit[i], to_visit[j]);
+					}
+				}
+			}
+		}
 	}
 
 	void remove_customer(int c) {
@@ -284,44 +311,52 @@ solution solve_greedy() {
 
 	while (remaining_cs.size() != 0) {
 		route r;
-		std::set<int> cs = remaining_cs;
 
-		while (true) {
-			int best_c = -1;
-			double min_fitness = 1e18;
+		for (int it = 0; it < 2; it++) { // TODO: can remove
+			std::set<int> cs = remaining_cs;
 
-			for (auto it = cs.begin(); it != cs.end();) {
-				const auto& c = *it;
+			while (true) {
+				int best_c = -1;
+				double min_fitness = 1e18;
 
-				if (r.capacity + customers[c].capacity > max_capacity) {
-					it++;
-					continue;
+				for (auto it = cs.begin(); it != cs.end();) {
+					const auto& c = *it;
+
+					if (r.capacity + customers[c].capacity > max_capacity) {
+						it++;
+						continue;
+					}
+
+					r.add_customer(c);
+					auto dr = r.last_run;
+					if (dr.is_valid() && dr.fitness() < min_fitness) {
+						min_fitness = dr.fitness();
+						best_c = c;
+					}
+
+					// if we already can't fit customer C into our route, we will never be able to in the future
+					if (!dr.is_valid()) {
+						it = cs.erase(it);
+					}
+					else {
+						it++;
+					}
+
+					r.remove_customer(c);
 				}
 
-				r.add_customer(c);
-				auto dr = r.drive();
-				if (dr.is_valid() && dr.fitness() < min_fitness) {
-					min_fitness = dr.fitness();
-					best_c = c;
-				}
+				if (best_c == -1)
+					break;
 
-				// if we already can't fit customer C into our route, we will never be able to in the future
-				if (!dr.is_valid()) {
-					it = cs.erase(it);
-				}
-				else {
-					it++;
-				}
-
-				r.remove_customer(c);
+				r.add_customer(best_c);
+				remaining_cs.erase(best_c);
+				cs.erase(best_c);
 			}
 
-			if (best_c == -1)
-				break;
-
-			r.add_customer(best_c);
-			remaining_cs.erase(best_c);
-			cs.erase(best_c);
+			double old_length = r.length();
+			r.shorten();
+			double new_length = r.length();
+			//std::cout << old_length << " -> " << new_length << ", d = " << old_length - new_length << ", " << it << std::endl;
 		}
 
 		pathlen += r.length();
@@ -373,6 +408,8 @@ int main(int argc, char** argv) {
 
 	input_customers();
 	solve_greedy();
+
+	std::cout << "Took" << get_time().count() / 1000.0 << "s\n";
 
 	return 0;
 }
