@@ -303,24 +303,28 @@ void input_customers() {
 solution solve_greedy() {
 	std::vector<route> routes;
 	
-	std::set<int> remaining_cs;
+	std::vector<int> remaining_cs;
 	for (const auto& c : customers)
-		if (c.i > 0) remaining_cs.insert(c.i);
+		if (c.i > 0) remaining_cs.push_back(c.i);
 
 	double pathlen = 0;
 
 	while (remaining_cs.size() != 0) {
 		route r;
 
+		int start_idx = rand() % remaining_cs.size();
+		r.add_customer(remaining_cs[start_idx]);
+		remaining_cs.erase(remaining_cs.begin() + start_idx);
+
 		for (int it = 0; it < 2; it++) { // TODO: can remove
-			std::set<int> cs = remaining_cs;
+			std::vector<int> cs = remaining_cs;
 
 			while (true) {
 				int best_c = -1;
 				double min_fitness = 1e18;
 
 				for (auto it = cs.begin(); it != cs.end();) {
-					const auto& c = *it;
+					auto c = *it;
 
 					if (r.capacity + customers[c].capacity > max_capacity) {
 						it++;
@@ -349,12 +353,16 @@ solution solve_greedy() {
 					break;
 
 				r.add_customer(best_c);
-				remaining_cs.erase(best_c);
-				cs.erase(best_c);
+				
+				auto it = std::find(remaining_cs.begin(), remaining_cs.end(), best_c);
+				if (it != remaining_cs.end()) remaining_cs.erase(it);
+
+				it = std::find(cs.begin(), cs.end(), best_c);
+				if (it != cs.end()) cs.erase(it);
 			}
 
 			double old_length = r.length();
-			r.shorten();
+			r.shorten(); // fast
 			double new_length = r.length();
 			//std::cout << old_length << " -> " << new_length << ", d = " << old_length - new_length << ", " << it << std::endl;
 		}
@@ -371,8 +379,9 @@ solution solve_greedy() {
 		<< ", pathlen = " << sol.distance << std::endl;
 
 	if (best_solution.empty() || sol < best_solution) {
-		std::cout << "Writing new solution to disk..." << std::endl;
+		std::cout << std::endl << "!!! Writing new solution to disk !!!" << std::endl << std::endl;
 		sol.to_file(output_path);
+		best_solution = sol;
 	}
 
 	//for (const auto& r : routes) {
@@ -384,6 +393,8 @@ solution solve_greedy() {
 }
 
 int main(int argc, char** argv) {
+	srand(time(0));
+
 	if (argc < 2) {
 		std::cerr << "Usage: " << argv[0] << " <input_path> <optional output_path>" << std::endl;
 		return 1;
@@ -407,9 +418,11 @@ int main(int argc, char** argv) {
 	}
 
 	input_customers();
-	solve_greedy();
-
-	std::cout << "Took" << get_time().count() / 1000.0 << "s\n";
+	
+	while (true) {
+		solve_greedy();
+		std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
+	}
 
 	return 0;
 }
