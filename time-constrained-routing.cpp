@@ -304,6 +304,11 @@ void input_customers() {
 	}
 }
 
+std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+double random01() {
+	return std::uniform_real_distribution<double>(0, 1)(rng);
+}
+
 solution solve_greedy() {
 	std::vector<route> routes;
 	
@@ -435,9 +440,9 @@ solution anneal(solution s0) {
 		double new_fitness = r0.fitness() + r1.fitness();
 
 		double d = new_fitness - old_fitness;
-		double rand01 = rand() / (double)RAND_MAX;
+		
 
-		if (d > 0 && rand01 < T) {
+		if (d > 0 && random01() < T) {
 			r0.capacity += customers[c0].capacity - customers[c1].capacity;
 			r1.capacity += customers[c1].capacity - customers[c0].capacity;
 
@@ -488,9 +493,8 @@ solution anneal(solution s0) {
 		double new_fitness = r0.fitness() + r1.fitness();
 
 		double d = new_fitness - old_fitness;
-		double rand01 = rand() / (double)RAND_MAX;
-
-		if (d > 0 && rand01 < T) {
+		
+		if (d > 0 && random01() < T) {
 			r0.capacity += customers[c].capacity;
 			r1.capacity -= customers[c].capacity;
 
@@ -521,6 +525,8 @@ solution anneal(solution s0) {
 		auto r0 = s0.routes[r0idx];
 
 		for (int c : r0.to_visit) {
+			if (c == 0) continue;
+
 			int random_route = rand() % s0.routes.size();
 
 			while (random_route == r0idx)
@@ -537,7 +543,6 @@ solution anneal(solution s0) {
 				r1.capacity -= customers[c].capacity;
 				r1.to_visit.erase(r1.to_visit.begin() + c1idx);
 
-				s0.routes.insert(s0.routes.begin() + r0idx, r0);
 				return false;
 			}
 		}
@@ -557,7 +562,7 @@ solution anneal(solution s0) {
 
 		// std::cout << "Iteration " << iter << " / " << max_iter << ", T = " << T << std::endl;
 
-		double rand01 = rand() / (double)RAND_MAX;
+		double rand01 = random01();
 
 		if (rand01 < 0.6) { // 60% chance of 2-swaps
 			// 5 retries
@@ -639,7 +644,7 @@ int main(int argc, char** argv) {
 		auto sol = solve_greedy();
 		mn_routes = std::min(mn_routes, (int)sol.routes.size());
 
-		if (sol.routes.size() > mn_routes) {
+		if (sol.routes.size() > mn_routes && random01() < 0.9) {
 			std::cout << "Too many routes, skipping..." << std::endl;
 			continue;
 		}
