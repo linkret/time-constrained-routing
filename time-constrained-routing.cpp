@@ -250,7 +250,7 @@ struct solution {
 		return solution(routes, distance_sum);
 	}
 
-	void to_file(const std::filesystem::path& filename) {
+	void to_file(const std::filesystem::path& filename) const {
 		std::ofstream file(filename);
 
 		file << routes.size() << "\n";
@@ -261,7 +261,7 @@ struct solution {
 		file << std::fixed << std::setprecision(2) << distance << '\n';
 	}
 
-	bool operator<(const solution& s2) {
+	bool operator<(const solution& s2) const {
 		if (routes.size() != s2.routes.size())
 			return routes.size() < s2.routes.size();
 		return distance < s2.distance && abs(distance - s2.distance) > 0.1; // big epsilon
@@ -372,8 +372,10 @@ solution solve_greedy() {
 		routes.push_back(std::move(r));
 	}
 
-	solution sol(routes, pathlen);
+	return solution(routes, pathlen);
+}
 
+void save_solution(const solution& sol) {
 	std::cout
 		<< "New solution: num_routes = " << sol.routes.size()
 		<< ", pathlen = " << sol.distance << std::endl;
@@ -388,8 +390,6 @@ solution solve_greedy() {
 	//	std::cout << r.drive().capacity << " ";
 	//}
 	//std::cout << std::endl;
-
-	return sol;
 }
 
 int main(int argc, char** argv) {
@@ -420,7 +420,8 @@ int main(int argc, char** argv) {
 	input_customers();
 	
 	while (true) {
-		solve_greedy();
+		auto sol = solve_greedy();
+		save_solution(sol);
 		std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
 	}
 
