@@ -8,6 +8,7 @@
 #include <set>
 #include <cassert>
 #include <thread>
+#include <random>
 
 #include <fstream>
 #include <filesystem>
@@ -149,14 +150,17 @@ struct route {
 			return fitness;
 		}
 
-		bool is_valid() const {
+		bool is_valid(bool verbose = false) const {
+			if (verbose) {
+				std::cout << "late_cnt = " << late_cnt << ", capacity = " << capacity << ", max_capacity = " << max_capacity << "\n";
+			}
 			return late_cnt == 0 && capacity <= max_capacity;
 		}
 	} last_run; // optimization, might cause trouble
 
 	// we could permute the customer order, like TSP, to minimise fitness
 	double fitness() { return drive().fitness(); }
-	double is_valid() { return drive().is_valid(); }
+	double is_valid(bool verbose = false) { return drive().is_valid(verbose); }
 	double length() { return drive().pathlen; }
 
 	const drive_result& drive() {
@@ -392,6 +396,209 @@ void save_solution(const solution& sol) {
 	//std::cout << std::endl;
 }
 
+solution anneal(solution s0) {
+	const int max_iter = 1000;
+
+	const auto two_swap = [&](double T) {
+		int r0idx;
+		int r1idx;
+
+		do {
+			r0idx = rand() % s0.routes.size();
+			r1idx = rand() % s0.routes.size();
+		} while (r0idx == r1idx);
+
+		auto& r0 = s0.routes[r0idx];
+		auto& r1 = s0.routes[r1idx];
+
+		int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
+		int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
+
+		int c0 = r0.to_visit[c0idx];
+		int c1 = r1.to_visit[c1idx];
+
+		double old_fitness = r0.fitness() + r1.fitness();
+
+		r0.capacity += customers[c1].capacity - customers[c0].capacity;
+		r1.capacity += customers[c0].capacity - customers[c1].capacity;
+		
+		std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
+
+		if (!r0.is_valid() || !r1.is_valid()) {
+			r0.capacity += customers[c0].capacity - customers[c1].capacity;
+			r1.capacity += customers[c1].capacity - customers[c0].capacity;
+
+			std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
+			return false;
+		}
+
+		double new_fitness = r0.fitness() + r1.fitness();
+
+		double d = new_fitness - old_fitness;
+		double rand01 = rand() / (double)RAND_MAX;
+
+		if (d > 0 && rand01 < T) {
+			r0.capacity += customers[c0].capacity - customers[c1].capacity;
+			r1.capacity += customers[c1].capacity - customers[c0].capacity;
+
+			std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
+
+			return true;
+		}
+
+		return true;
+	};
+
+	const auto move_one = [&](double T) {
+		int r0idx;
+		int r1idx;
+
+		do {
+			r0idx = rand() % s0.routes.size();
+			r1idx = rand() % s0.routes.size();
+		} while (r0idx == r1idx);
+
+		auto& r0 = s0.routes[r0idx];
+		auto& r1 = s0.routes[r1idx];
+
+		int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
+		int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
+
+		double old_fitness = r0.fitness() + r1.fitness();
+
+		int c = r0.to_visit[c0idx];
+
+		r0.capacity -= customers[c].capacity;
+		r1.capacity += customers[c].capacity;
+		
+		r0.to_visit.erase(r0.to_visit.begin() + c0idx);
+		r1.to_visit.insert(r1.to_visit.begin() + c1idx, c);
+
+		
+		if (!r0.is_valid() || !r1.is_valid()) {
+			r0.capacity += customers[c].capacity;
+			r1.capacity -= customers[c].capacity;
+
+			r1.to_visit.erase(r1.to_visit.begin() + c1idx);
+			r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
+
+			return false;
+		}
+
+		double new_fitness = r0.fitness() + r1.fitness();
+
+		double d = new_fitness - old_fitness;
+		double rand01 = rand() / (double)RAND_MAX;
+
+		if (d > 0 && rand01 < T) {
+			r0.capacity += customers[c].capacity;
+			r1.capacity -= customers[c].capacity;
+
+			r1.to_visit.erase(r1.to_visit.begin() + c1idx);
+			r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
+
+			return true;
+		}
+
+		// if removed all in route 0, delete route 0
+		if (r0.to_visit.size() == 2) {
+			s0.routes.erase(s0.routes.begin() + r0idx);
+		}
+
+		return true;
+	};
+
+	const auto remove_route = [&](double T, bool remove_smallest) {
+		int r0idx = rand() % s0.routes.size(); // TODO: favour smaller routes
+	
+		if (remove_smallest) {
+			for (int i = 0; i < s0.routes.size(); i++) {
+				if (s0.routes[i].to_visit.size() < s0.routes[r0idx].to_visit.size())
+					r0idx = i;
+			}
+		}
+		
+		auto r0 = s0.routes[r0idx];
+
+		for (int c : r0.to_visit) {
+			int random_route = rand() % s0.routes.size();
+
+			while (random_route == r0idx)
+				random_route = rand() % s0.routes.size();
+
+			auto& r1 = s0.routes[random_route];
+
+			int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
+
+			r1.capacity += customers[c].capacity;
+			r1.to_visit.insert(r1.to_visit.begin() + c1idx, c);
+
+			if (!r1.is_valid()) {
+				r1.capacity -= customers[c].capacity;
+				r1.to_visit.erase(r1.to_visit.begin() + c1idx);
+
+				s0.routes.insert(s0.routes.begin() + r0idx, r0);
+				return false;
+			}
+		}
+
+		s0.routes.erase(s0.routes.begin() + r0idx);
+
+		// assert all routes are valid
+		for (auto& r : s0.routes) {
+			assert(r.is_valid());
+		}
+
+		return true;
+	};
+
+	for (int iter = 1; iter <= max_iter; ++iter) {
+		double T = 1 - 1. * iter / max_iter;
+
+		// std::cout << "Iteration " << iter << " / " << max_iter << ", T = " << T << std::endl;
+
+		double rand01 = rand() / (double)RAND_MAX;
+
+		if (rand01 < 0.6) { // 60% chance of 2-swaps
+			// 5 retries
+			for (int i = 0; i < 5; i++)
+				if (two_swap(T))
+					break;
+			
+		} else if (rand01 < 0.8) { // 20% chance of move-one
+			// 5 retries
+			for (int i = 0; i < 5; i++)
+				if (move_one(T))
+					break;
+		} else if (rand01 < 0.9) { // 10% chance of removing a route
+			// 15 retries
+			for (int i = 0; i < 15; i++)
+				if (remove_route(T, false))
+					break;
+		} else { // 10% chance of removing the smallest route
+			// 15 retries
+			for (int i = 0; i < 15; i++)
+				if (remove_route(T, true))
+					break;
+		}
+	}
+
+	double pathlen = 0;
+	for (auto& r : s0.routes) {
+		r.shorten();
+		pathlen += r.length();
+	}
+
+	s0.distance = pathlen;
+
+	// assert all routes are valid
+	for (auto& r : s0.routes) {
+		assert(r.is_valid());
+	}
+
+	return s0;
+}
+
 int main(int argc, char** argv) {
 	srand(time(0));
 
@@ -419,8 +626,30 @@ int main(int argc, char** argv) {
 
 	input_customers();
 	
+	double time_lim = 15.;
+
+	int mn_routes = 1e9;
+
 	while (true) {
+		if (get_time().count() / 1000.0 >= time_lim) {
+			std::cout << "Time limit reached, exiting..." << std::endl;
+			break;
+		}
+
 		auto sol = solve_greedy();
+		mn_routes = std::min(mn_routes, (int)sol.routes.size());
+
+		if (sol.routes.size() > mn_routes) {
+			std::cout << "Too many routes, skipping..." << std::endl;
+			continue;
+		}
+
+		std::cout << "Greedy solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
+
+		sol = anneal(sol);
+
+		std::cout << "Annealed solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
+
 		save_solution(sol);
 		std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
 	}
