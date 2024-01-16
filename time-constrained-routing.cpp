@@ -32,6 +32,7 @@ struct solution;
 std::chrono::time_point<std::chrono::steady_clock> start_time;
 int max_routes, max_capacity;
 
+long long global_iteration_count = 0;
 std::filesystem::path input_path, output_path_1m, output_path_5m, output_path_un;
 
 // Helpers
@@ -313,6 +314,9 @@ struct solution {
 		}
 
 		file << std::fixed << std::setprecision(2) << distance << '\n';
+
+		std::ofstream file_cnt(filename.string() + "_itercnt.txt");
+		file_cnt << global_iteration_count << '\n';
 	}
 
 	bool operator<(const solution& s2) const {
@@ -392,6 +396,8 @@ double random01() {
 }
 
 solution solve_greedy(const settings& sett) {
+	global_iteration_count++;
+
 	std::vector<route> routes;
 	
 	std::vector<int> remaining_cs;
@@ -479,19 +485,19 @@ void save_solution(const solution& sol) {
 		<< ", pathlen = " << sol.distance << std::endl;
 
 	if (get_time() <= std::chrono::minutes(1) && (best_solution_1m.empty() || sol < best_solution_1m)) {
-		std::cout << std::endl << "!!! Writing new 1m solution to disk: " << output_path_1m.string() << std::endl << std::endl;
+		std::cout << "!!! Writing new 1m solution to disk: " << output_path_1m.string() << std::endl;
 		sol.to_file(output_path_1m);
 		best_solution_1m = sol;
 	}
 
 	if (get_time() <= std::chrono::minutes(5) && (best_solution_5m.empty() || sol < best_solution_5m)) {
-		std::cout << std::endl << "!!! Writing new solution to disk: " << output_path_5m.string() << std::endl << std::endl;
+		std::cout << "!!! Writing new solution to disk: " << output_path_5m.string() << std::endl;
 		sol.to_file(output_path_5m);
 		best_solution_5m = sol;
 	}
 
 	if (best_solution_un.empty() || sol < best_solution_un) {
-		std::cout << std::endl << "!!! Writing new solution to disk: " << output_path_un.string() << std::endl << std::endl;
+		std::cout << "!!! Writing new solution to disk: " << output_path_un.string() << std::endl;
 		sol.to_file(output_path_un);
 		best_solution_un = sol;
 	}
@@ -615,6 +621,7 @@ solution anneal(solution s0, const settings& sett) {
 	solution best = s0;
 
 	for (int iter = 1; iter <= max_iter; ++iter) {
+		global_iteration_count++;
 		double T = 1. / (1. + exp(-3. + (10. * iter / max_iter)));
 		T = sett.starting_T * T;
 
@@ -626,13 +633,13 @@ solution anneal(solution s0, const settings& sett) {
 
 		if (rand01 < sett.swap_chance) {
 			// 5 retries
-			for (int i = 0; i < 5; i++)
+			for (int i = 0; i < 500; i++)
 				if (two_swap(T))
 					break;
 			
 		} else if (rand01 < sett.move_chance + sett.swap_chance) {
 			// 5 retries
-			for (int i = 0; i < 5; i++)
+			for (int i = 0; i < 500; i++)
 				if (move_one(T))
 					break;
 		} else {
@@ -694,26 +701,45 @@ void runner(const settings& sett) {
 }
 
 int main(int argc, char** argv) {
-	if (argc < 2) {
-		std::cerr << "Usage: " << argv[0] << " <input_path> <optional output_path>" << std::endl;
+	if (argc != 2) {
+		std::cerr << "Usage: " << argv[0] << " <input_path>" << std::endl;
 		return 1;
 	}
 
 	input_path = std::filesystem::path(argv[1]);
 
-	if (argc == 3)
-		output_path = std::filesystem::path(argv[2]);
-	else {
-		auto fname = input_path.filename().string();
-		// transform instances/inst1.txt into res/inst1.txt, if the output_path was not given
-		output_path = input_path.parent_path().parent_path().append("res").append(fname);
+	if (argc == 2) {
+		auto ifname = input_path.filename().string();
+		std::string icnt = ifname.substr(4, 1); // "inst7.txt" -> "7"
+		
+		auto fname_1m = "res-1m-i" + icnt + ".txt";
+		auto fname_5m = "res-5m-i" + icnt + ".txt";
+		auto fname_un = "res-un-i" + icnt + ".txt";
+
+		output_path_1m = input_path.parent_path().parent_path().append("res").append(fname_1m);
+		output_path_5m = input_path.parent_path().parent_path().append("res").append(fname_5m);
+		output_path_un = input_path.parent_path().parent_path().append("res").append(fname_un);
 	}
 	
-	if (std::filesystem::exists(output_path)) {
-		best_solution = solution::from_file(output_path);
+	if (std::filesystem::exists(output_path_1m)) {
+		best_solution_1m = solution::from_file(output_path_1m);
 		std::cerr 
-			<< "Old solution: num_routes = " << best_solution.routes.size() 
-			<< ", pathlen = " << best_solution.distance << std::endl;
+			<< "Old solution 1m: num_routes = " << best_solution_1m.routes.size() 
+			<< ", pathlen = " << best_solution_1m.distance << std::endl;
+	}
+
+	if (std::filesystem::exists(output_path_5m)) {
+		best_solution_5m = solution::from_file(output_path_5m);
+		std::cerr
+			<< "Old solution 5m: num_routes = " << best_solution_5m.routes.size()
+			<< ", pathlen = " << best_solution_5m.distance << std::endl;
+	}
+
+	if (std::filesystem::exists(output_path_un)) {
+		best_solution_un = solution::from_file(output_path_un);
+		std::cerr
+			<< "Old solution unlimited: num_routes = " << best_solution_un.routes.size()
+			<< ", pathlen = " << best_solution_un.distance << std::endl;
 	}
 
 	input_customers();
