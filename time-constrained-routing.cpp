@@ -13,6 +13,14 @@
 #include <fstream>
 #include <filesystem>
 
+// Settings
+const double allowed_gap = 0.1; // 10% gap allowed
+const int anneal_max_iter = 1000;
+const double starting_T = 10;
+const double swap_chance = 0.5;
+const double move_chance = 0.5;
+const double shorten_chance = 0.1;
+
 struct solution;
 
 // Global vars
@@ -476,7 +484,7 @@ void save_solution(const solution& sol) {
 }
 
 solution anneal(solution s0) {
-	const int max_iter = 1000;
+	const int max_iter = anneal_max_iter;
 
 	const auto two_swap = [&](double T) {
 		int r0idx;
@@ -515,8 +523,7 @@ solution anneal(solution s0) {
 
 		double d = new_fitness - old_fitness;
 		
-
-		if (d > 0 && random01() < T) {
+		if (d > 0 && exp(-d / T) < random01()) {
 			r0.capacity += customers[c0].capacity - customers[c1].capacity;
 			r1.capacity += customers[c1].capacity - customers[c0].capacity;
 
@@ -568,7 +575,7 @@ solution anneal(solution s0) {
 
 		double d = new_fitness - old_fitness;
 		
-		if (d > 0 && random01() < T) {
+		if (d > 0 && exp(-d / T) < random01()) {
 			r0.capacity += customers[c].capacity;
 			r1.capacity -= customers[c].capacity;
 
@@ -586,79 +593,32 @@ solution anneal(solution s0) {
 		return true;
 	};
 
-	const auto remove_route = [&](double T, bool remove_smallest) {
-		int r0idx = rand() % s0.routes.size(); // TODO: favour smaller routes
-	
-		if (remove_smallest) {
-			for (int i = 0; i < s0.routes.size(); i++) {
-				if (s0.routes[i].to_visit.size() < s0.routes[r0idx].to_visit.size())
-					r0idx = i;
-			}
-		}
-		
-		auto r0 = s0.routes[r0idx];
-
-		for (int c : r0.to_visit) {
-			if (c == 0) continue;
-
-			int random_route = rand() % s0.routes.size();
-
-			while (random_route == r0idx)
-				random_route = rand() % s0.routes.size();
-
-			auto& r1 = s0.routes[random_route];
-
-			int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
-
-			r1.capacity += customers[c].capacity;
-			r1.to_visit.insert(r1.to_visit.begin() + c1idx, c);
-
-			if (!r1.is_valid()) {
-				r1.capacity -= customers[c].capacity;
-				r1.to_visit.erase(r1.to_visit.begin() + c1idx);
-
-				return false;
-			}
-		}
-
-		s0.routes.erase(s0.routes.begin() + r0idx);
-
-		// assert all routes are valid
-		for (auto& r : s0.routes) {
-			assert(r.is_valid());
-		}
-
-		return true;
-	};
+	solution best = s0;
 
 	for (int iter = 1; iter <= max_iter; ++iter) {
-		double T = 1 - 1. * iter / max_iter;
+		double T = 1. / (1. + exp(-3. + (10. * iter / max_iter)));
+		T = starting_T * T;
 
 		// std::cout << "Iteration " << iter << " / " << max_iter << ", T = " << T << std::endl;
 
-		double rand01 = random01();
+		// std::cout << "Iteration " << iter << " / " << max_iter << ", T = " << T << std::endl;
 
-		if (rand01 < 0.6) { // 60% chance of 2-swaps
+		double rand01 = random01() * (swap_chance + move_chance + shorten_chance);
+
+		if (rand01 < swap_chance) {
 			// 5 retries
 			for (int i = 0; i < 5; i++)
 				if (two_swap(T))
 					break;
 			
-		} else if (rand01 < 0.8) { // 20% chance of move-one
+		} else if (rand01 < move_chance + swap_chance) {
 			// 5 retries
 			for (int i = 0; i < 5; i++)
 				if (move_one(T))
 					break;
-		} else if (rand01 < 0.9) { // 10% chance of removing a route
-			// 15 retries
-			for (int i = 0; i < 15; i++)
-				if (remove_route(T, false))
-					break;
-		} else { // 10% chance of removing the smallest route
-			// 15 retries
-			for (int i = 0; i < 15; i++)
-				if (remove_route(T, true))
-					break;
+		} else {
+			for (auto& r : s0.routes) 
+				r.shorten();
 		}
 	}
 
@@ -706,8 +666,7 @@ int main(int argc, char** argv) {
 	input_customers();
 	
 	double time_lim = 15.;
-
-	int mn_routes = 1e9;
+	int best_num_routes = 1e9;
 
 	while (true) {
 		if (get_time().count() / 1000.0 >= time_lim) {
@@ -716,14 +675,14 @@ int main(int argc, char** argv) {
 		}
 
 		auto sol = solve_greedy();
-		mn_routes = std::min(mn_routes, (int)sol.routes.size());
 
-		if (sol.routes.size() > mn_routes && random01() < 0.9) {
-			std::cout << "Too many routes, skipping..." << std::endl;
-			continue;
-		}
+		save_solution(sol);
 
 		std::cout << "Greedy solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
+
+		if (sol.routes.size() >= (1. + allowed_gap) * best_num_routes) {
+			continue;
+		}
 
 		sol = anneal(sol);
 
