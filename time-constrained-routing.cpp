@@ -663,6 +663,10 @@ void runner(const settings& sett) {
 
 		// std::cout << "Greedy solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
 
+		if (sett.just_greedy) {
+			continue;
+		}
+
 		if (sol.routes.size() >= (1. + sett.allowed_gap) * best_num_routes) {
 			continue;
 		}
