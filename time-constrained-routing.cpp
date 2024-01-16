@@ -9,17 +9,21 @@
 #include <cassert>
 #include <thread>
 #include <random>
-
+#include <mutex>
 #include <fstream>
 #include <filesystem>
 
 // Settings
-const double allowed_gap = 0.1; // 10% gap allowed
-const int anneal_max_iter = 1000;
-const double starting_T = 10;
-const double swap_chance = 0.5;
-const double move_chance = 0.5;
-const double shorten_chance = 0.1;
+struct {
+	double allowed_gap;
+	int anneal_max_iter;
+	double starting_T;
+	double swap_chance;
+	double move_chance;
+	double shorten_chance;
+	bool just_greedy;
+} typedef settings;
+
 
 struct solution;
 
@@ -45,8 +49,6 @@ const int N = 5000; // Important, code will crash if customers.size() > N
 double distances[N][N]; // precompute, to avoid slow sqrt() calls in runtime
 bool can_go_after[N][N];
 bool can_swap[N][N];
-
-int count1, count2;
 
 std::chrono::milliseconds get_time() {
 	using namespace std::chrono;
@@ -141,7 +143,6 @@ struct route {
 					auto dr = drive();
 					if (dr.is_valid() && dr.pathlen < best_dist) {
 						best_dist = dr.pathlen;
-						count1++;
 						moved = true;
 					}
 					else {
@@ -161,7 +162,6 @@ struct route {
 					auto dr = drive();
 					if (dr.is_valid() && dr.pathlen < best_dist) {
 						best_dist = dr.pathlen;
-						count2++;
 						moved = true;
 					}
 					else {
@@ -386,12 +386,12 @@ void input_customers() {
 	}
 }
 
-std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
 double random01() {
+	static thread_local std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
 	return std::uniform_real_distribution<double>(0, 1)(rng);
 }
 
-solution solve_greedy() {
+solution solve_greedy(const settings& sett) {
 	std::vector<route> routes;
 	
 	std::vector<int> remaining_cs;
@@ -467,6 +467,13 @@ solution solve_greedy() {
 }
 
 void save_solution(const solution& sol) {
+
+	// static mutex
+	static std::mutex mtx;
+
+	std::lock_guard<std::mutex> lock(mtx);
+
+	std::cout << "TID " << std::this_thread::get_id() << ": ";
 	std::cout
 		<< "New solution: num_routes = " << sol.routes.size()
 		<< ", pathlen = " << sol.distance << std::endl;
@@ -483,8 +490,8 @@ void save_solution(const solution& sol) {
 	//std::cout << std::endl;
 }
 
-solution anneal(solution s0) {
-	const int max_iter = anneal_max_iter;
+solution anneal(solution s0, const settings& sett) {
+	const int max_iter = sett.anneal_max_iter;
 
 	const auto two_swap = [&](double T) {
 		int r0idx;
@@ -597,21 +604,21 @@ solution anneal(solution s0) {
 
 	for (int iter = 1; iter <= max_iter; ++iter) {
 		double T = 1. / (1. + exp(-3. + (10. * iter / max_iter)));
-		T = starting_T * T;
+		T = sett.starting_T * T;
 
 		// std::cout << "Iteration " << iter << " / " << max_iter << ", T = " << T << std::endl;
 
 		// std::cout << "Iteration " << iter << " / " << max_iter << ", T = " << T << std::endl;
 
-		double rand01 = random01() * (swap_chance + move_chance + shorten_chance);
+		double rand01 = random01() * (sett.swap_chance + sett.move_chance + sett.shorten_chance);
 
-		if (rand01 < swap_chance) {
+		if (rand01 < sett.swap_chance) {
 			// 5 retries
 			for (int i = 0; i < 5; i++)
 				if (two_swap(T))
 					break;
 			
-		} else if (rand01 < move_chance + swap_chance) {
+		} else if (rand01 < sett.move_chance + sett.swap_chance) {
 			// 5 retries
 			for (int i = 0; i < 5; i++)
 				if (move_one(T))
@@ -638,9 +645,42 @@ solution anneal(solution s0) {
 	return s0;
 }
 
-int main(int argc, char** argv) {
-	srand(time(0));
+int argc;
+char** argv;
 
+void runner(const settings& sett) {	
+	srand(time(0));
+	
+	double time_lim = 15.;
+	int best_num_routes = 1e9;
+
+	while (true) {
+		if (get_time().count() / 1000.0 >= time_lim) {
+			std::cout << "Time limit reached, exiting..." << std::endl;
+			break;
+		}
+
+		auto sol = solve_greedy(sett);
+
+		save_solution(sol);
+
+		// std::cout << "Greedy solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
+
+		if (sol.routes.size() >= (1. + sett.allowed_gap) * best_num_routes) {
+			continue;
+		}
+
+		sol = anneal(sol, sett);
+
+		// std::cout << "Annealed solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
+
+		save_solution(sol);
+		// std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
+		//break;
+	}
+}
+
+int main(int argc, char** argv) {
 	if (argc < 2) {
 		std::cerr << "Usage: " << argv[0] << " <input_path> <optional output_path>" << std::endl;
 		return 1;
@@ -664,36 +704,34 @@ int main(int argc, char** argv) {
 	}
 
 	input_customers();
-	
-	double time_lim = 15.;
-	int best_num_routes = 1e9;
 
-	while (true) {
-		if (get_time().count() / 1000.0 >= time_lim) {
-			std::cout << "Time limit reached, exiting..." << std::endl;
-			break;
-		}
+	::argc = argc;
+	::argv = argv;
 
-		auto sol = solve_greedy();
+	// runner();
 
-		save_solution(sol);
+	const int n_threads = 8;
 
-		std::cout << "Greedy solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
+	std::vector<std::thread> threads(n_threads);
 
-		if (sol.routes.size() >= (1. + allowed_gap) * best_num_routes) {
-			continue;
-		}
+	settings setts[] = {
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+	};
 
-		sol = anneal(sol);
-
-		std::cout << "Annealed solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
-
-		save_solution(sol);
-		std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
-		//break;
+	for (int i = 0; i < n_threads; i++) {
+		threads[i] = std::thread(runner, setts[i]);
 	}
 
-	//std::cout << count1 << " " << count2 << " " << count2 * 1.0 / (count1 + count2) << std::endl;
+	for (auto& t : threads) {
+		t.join();
+	}
 
 	return 0;
 }

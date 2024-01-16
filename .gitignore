@@ -4,3 +4,6 @@ x64
 .vs
 HiGHS.log
 a.out
+a.out.dSYM
+a.out.dSYM/
+a.out.dSYM/*
