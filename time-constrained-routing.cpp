@@ -645,9 +645,6 @@ solution anneal(solution s0, const settings& sett) {
 	return s0;
 }
 
-int argc;
-char** argv;
-
 void runner(const settings& sett) {	
 	srand(time(0));
 	
@@ -704,9 +701,6 @@ int main(int argc, char** argv) {
 	}
 
 	input_customers();
-
-	::argc = argc;
-	::argv = argv;
 
 	// runner();
 
