@@ -710,7 +710,7 @@ void runner(const settings& sett) {
 			continue;
 		}
 
-		if (sol.routes.size() >= (1. + sett.allowed_gap) * best_num_routes) {
+		if (sol.routes.size() > sett.allowed_gap + best_num_routes) {
 			continue;
 		}
 
@@ -718,6 +718,7 @@ void runner(const settings& sett) {
 
 		// std::cout << "Annealed solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
 
+		std::cout << "Anneal: ";
 		save_solution(sol);
 		// std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
 		//break;
@@ -783,14 +784,14 @@ int main(int argc, char** argv) {
 	// bool just_greedy;
 
 	settings setts[] = {
-		{ 0.2, 100000, 100, 0.1, 0.9, 0.0005, 0 },
-		//{ 0.1, 10000, 10, 0.5, 0.7, 0.005, 0 },
-		//{ 0.1, 5000, 10, 0.5, 0.5, 0.002, 0 },
-		//{ 0.1, 1000000, 50, 0.5, 0.5, 0.001, 0 },
-		//{ 0.3, 200000, 10, 0.5, 0.5, 0.001, 0 },
-		//{ 0.2, 2000, 10, 0.5, 0.5, 0.001, 0 },
-		//{ 0.1, 10000, 10, 0.3, 0.7, 0.001, 0 },
-		//{ 0.1, 2000, 10, 0.5, 0.5, 0.001, 1 },
+		{ 0.0, 100000, 100, 0.1, 0.9, 0.0005, 0 },
+		{ 0.0, 100000, 10, 0.2, 0.8, 0.001, 0 },
+		{ 0.0, 100000, 10, 0.05, 0.95, 0.003, 0 },
+		{ 0.0, 100000, 50, 0.5, 0.5, 0.002, 0 },
+		{ 0.0, 100000, 10, 0.9, 0.1, 0.001, 0 },
+		{ 0.0, 100000, 10, 0.1, 0.9, 0.005, 0 },
+		{ 0.0, 100000, 10, 0.3, 0.7, 0.001, 0 },
+		{ 0.0, 0, 0, 0, 0, 0, 1 },
 	};
 
 	for (int i = 0; i < n_threads; i++) {
