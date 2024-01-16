@@ -108,7 +108,7 @@ struct route {
 
 		for (; i <= r; i++) {
 			auto f = fitness(); // slow, visits entire route
-			if (f < min_fitness) {
+			if (last_run.is_valid() && f < min_fitness) {
 				min_fitness = f;
 				best_pos = i;
 			}
@@ -537,44 +537,44 @@ bool two_swap(solution& s0, double T) {
 	int c0 = r0.to_visit[c0idx];
 	int c1 = r1.to_visit[c1idx];
 
-		int new_r0c = r0.capacity + customers[c1].capacity - customers[c0].capacity;
-		int new_r1c = r1.capacity + customers[c0].capacity - customers[c1].capacity;
+	int new_r0c = r0.capacity + customers[c1].capacity - customers[c0].capacity;
+	int new_r1c = r1.capacity + customers[c0].capacity - customers[c1].capacity;
 		
-		if (new_r0c > max_capacity || new_r1c > max_capacity) {
-			return false;
-		}
+	if (new_r0c > max_capacity || new_r1c > max_capacity) {
+		return false;
+	}
 		
-		double old_fitness = r0.last_run.fitness() + r1.last_run.fitness();
+	double old_fitness = r0.fitness() + r1.fitness();
 		
-		r0.remove_customer(c0);
-		r0.add_customer(c1);
-		r1.remove_customer(c1);
-		r1.add_customer(c0);
+	r0.remove_customer(c0);
+	r0.add_customer(c1);
+	r1.remove_customer(c1);
+	r1.add_customer(c0);
+	s0.update_distance();
+
+	if (!r0.last_run.is_valid() || !r1.last_run.is_valid()) {
+		r0.remove_customer(c1);
+		r0.add_customer(c0);
+		r1.remove_customer(c0);
+		r1.add_customer(c1);
 		s0.update_distance();
 
-		if (!r0.last_run.is_valid() || !r1.last_run.is_valid()) {
-			r0.remove_customer(c1);
-			r0.add_customer(c0);
-			r1.remove_customer(c0);
-			r1.add_customer(c1);
-			s0.update_distance();
+		return false;
+	}
 
-			return false;
-		}
-
-		double new_fitness = r0.last_run.fitness() + r1.last_run.fitness();
+	double new_fitness = r0.last_run.fitness() + r1.last_run.fitness();
 		
-		double d = new_fitness - old_fitness;
+	double d = new_fitness - old_fitness;
 		
-		if (d > 0 && exp(-d / T) < random01()) {
-			r0.remove_customer(c1);
-			r0.add_customer(c0);
-			r1.remove_customer(c0);
-			r1.add_customer(c1);
-			s0.update_distance();
+	if (d > 0 && exp(-d / T) < random01()) {
+		r0.remove_customer(c1);
+		r0.add_customer(c0);
+		r1.remove_customer(c0);
+		r1.add_customer(c1);
+		s0.update_distance();
 
-			return true;
-		}
+		return true;
+	}
 
 	return true;
 }
@@ -591,39 +591,39 @@ bool move_one(solution& s0, double T) {
 	auto& r0 = s0.routes[r0idx];
 	auto& r1 = s0.routes[r1idx];
 
-		int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
+	int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
 
-		double old_fitness = r0.last_run.fitness() + r1.last_run.fitness();
+	double old_fitness = r0.fitness() + r1.fitness();
 
 	int c = r0.to_visit[c0idx];
 
-		if (r1.capacity + customers[c].capacity > max_capacity) {
-			return false;
-		}
+	if (r1.capacity + customers[c].capacity > max_capacity) {
+		return false;
+	}
 		
-		r0.remove_customer(c);
-		r1.add_customer(c);
+	r0.remove_customer(c);
+	r1.add_customer(c);
+	s0.update_distance();
+		
+	if (!r0.last_run.is_valid() || !r1.last_run.is_valid()) {
+		r1.remove_customer(c);
+		r0.add_customer(c);
 		s0.update_distance();
-		
-		if (!r0.last_run.is_valid() || !r1.last_run.is_valid()) {
-			r1.remove_customer(c);
-			r0.add_customer(c);
-			s0.update_distance();
 
 		return false;
 	}
 
-		double new_fitness = r0.fitness() + r1.fitness() - (r0.to_visit.size() == 2) * -1e9;
+	double new_fitness = r0.fitness() + r1.fitness() - (r0.to_visit.size() == 2) * -1e9;
 
-		double d = new_fitness - old_fitness;
+	double d = new_fitness - old_fitness;
 		
-		if (d > 0 && exp(-d / T) < random01()) {
-			r1.remove_customer(c);
-			r0.add_customer(c);
-			s0.update_distance();
+	if (d > 0 && exp(-d / T) < random01()) {
+		r1.remove_customer(c);
+		r0.add_customer(c);
+		s0.update_distance();
 
-			return true;
-		}
+		return true;
+	}
 
 	// if removed all in route 0, delete route 0
 	if (r0.to_visit.size() == 2) {
@@ -672,19 +672,19 @@ solution anneal(solution s0, const settings& sett) {
 	}
 
 	double pathlen = 0;
-	for (auto& r : s0.routes) {
+	for (auto& r : best.routes) {
 		r.shorten();
 		pathlen += r.length();
 	}
 
-	s0.distance = pathlen;
+	best.distance = pathlen;
 
 	// assert all routes are valid
-	for (auto& r : s0.routes) {
+	for (auto& r : best.routes) {
 		assert(r.is_valid());
 	}
 
-	return s0;
+	return best;
 }
 
 void runner(const settings& sett) {	
@@ -770,7 +770,7 @@ int main(int argc, char** argv) {
 
 	// runner();
 
-	const int n_threads = 8;
+	const int n_threads = 1;
 
 	std::vector<std::thread> threads(n_threads);
 
@@ -783,14 +783,14 @@ int main(int argc, char** argv) {
 	// bool just_greedy;
 
 	settings setts[] = {
-		{ 0.2, 100000, 100, 0.7, 0.5, 0.001, 0 },
-		{ 0.1, 10000, 10, 0.5, 0.7, 0.005, 0 },
-		{ 0.1, 5000, 10, 0.5, 0.5, 0.002, 0 },
-		{ 0.1, 1000000, 50, 0.5, 0.5, 0.001, 0 },
-		{ 0.3, 200000, 10, 0.5, 0.5, 0.001, 0 },
-		{ 0.2, 2000, 10, 0.5, 0.5, 0.001, 0 },
-		{ 0.1, 10000, 10, 0.3, 0.7, 0.001, 0 },
-		{ 0.1, 2000, 10, 0.5, 0.5, 0.001, 1 },
+		{ 0.2, 100000, 100, 0.1, 0.9, 0.0005, 0 },
+		//{ 0.1, 10000, 10, 0.5, 0.7, 0.005, 0 },
+		//{ 0.1, 5000, 10, 0.5, 0.5, 0.002, 0 },
+		//{ 0.1, 1000000, 50, 0.5, 0.5, 0.001, 0 },
+		//{ 0.3, 200000, 10, 0.5, 0.5, 0.001, 0 },
+		//{ 0.2, 2000, 10, 0.5, 0.5, 0.001, 0 },
+		//{ 0.1, 10000, 10, 0.3, 0.7, 0.001, 0 },
+		//{ 0.1, 2000, 10, 0.5, 0.5, 0.001, 1 },
 	};
 
 	for (int i = 0; i < n_threads; i++) {
