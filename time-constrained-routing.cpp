@@ -648,7 +648,7 @@ solution anneal(solution s0, const settings& sett) {
 void runner(const settings& sett) {	
 	srand(time(0));
 	
-	double time_lim = 15.;
+	double time_lim = 10 * 60.;
 	int best_num_routes = 1e9;
 
 	while (true) {
@@ -712,15 +712,23 @@ int main(int argc, char** argv) {
 
 	std::vector<std::thread> threads(n_threads);
 
+	// double allowed_gap;
+	// int anneal_max_iter;
+	// double starting_T;
+	// double swap_chance;
+	// double move_chance;
+	// double shorten_chance;
+	// bool just_greedy;
+
 	settings setts[] = {
+		{ 0.2, 100000, 10, 0.7, 0.5, 0.1, 0 },
+		{ 0.1, 10000, 10, 0.5, 0.7, 0.1, 0 },
 		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 5, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 1000, 2, 0.5, 0.5, 0.1, 0 },
+		{ 0.2, 1000, 10, 0.5, 0.5, 0.1, 0 },
+		{ 0.1, 10000, 10, 0.3, 0.7, 0.1, 0 },
+		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 1 },
 	};
 
 	for (int i = 0; i < n_threads; i++) {
