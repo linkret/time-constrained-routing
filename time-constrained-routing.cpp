@@ -35,6 +35,10 @@ double distance(pii a, pii b) {
  
 const int N = 5000; // Important, code will crash if customers.size() > N
 double distances[N][N]; // precompute, to avoid slow sqrt() calls in runtime
+bool can_go_after[N][N];
+bool can_swap[N][N];
+
+int count1, count2;
 
 std::chrono::milliseconds get_time() {
 	using namespace std::chrono;
@@ -80,12 +84,18 @@ struct route {
 		int best_pos = 1;
 		double min_fitness = 1e18;
 		
-		to_visit.insert(to_visit.begin() + 1, c);
-		int i = 1;
+		int i = 1, l = 1, r = to_visit.size() - 1;
 
-		for (; i < to_visit.size() - 1; i++) {
-			if (customers[c].t2 < customers[to_visit[i-1]].t1) // impossible
-				break;
+		// optimization to drastically cut down the range
+		for (int j = 1; j < to_visit.size() - 1; j++) {
+			if (!can_go_after[to_visit[j]][c]) r = std::min(r, j);
+			if (!can_go_after[c][to_visit[j]]) l = std::max(l, j);
+		}
+
+		i = l;
+		to_visit.insert(to_visit.begin() + i, c);
+
+		for (; i <= r; i++) {
 			auto f = fitness(); // slow, visits entire route
 			if (f < min_fitness) {
 				min_fitness = f;
@@ -100,20 +110,30 @@ struct route {
 		return is_valid();
 	}
 
-	void shorten() {
+	bool shorten() {
+		// intra-route localsearch, greedily takes any improvement it can find
 		// pairwise swaps order of customers to decrease distance
+		// TODO: call drive() at the start?
 
+		double original_dist = last_run.pathlen;
 		double best_dist = last_run.pathlen; // can also try best fitness?
 
 		bool moved = true;
 		while (moved) {
 			moved = false;
+			// simple node-swap
 			for (int i = 1; i < to_visit.size()-1; i++) {
 				for (int j = i + 1; j < to_visit.size() - 1; j++) {
+					if (!can_swap[to_visit[i]][to_visit[j]])
+						continue;
+
+					// can skip in advance if distances are worse, can be added in 2opt too, < 1% optimization as is
+
 					std::swap(to_visit[i], to_visit[j]);
 					auto dr = drive();
 					if (dr.is_valid() && dr.pathlen < best_dist) {
 						best_dist = dr.pathlen;
+						count1++;
 						moved = true;
 					}
 					else {
@@ -121,7 +141,29 @@ struct route {
 					}
 				}
 			}
+
+			// 2-opt
+			for (int i = 1; i < to_visit.size() - 1; i++) {
+				for (int j = i + 1; j < to_visit.size() - 1; j++) {
+					if (!can_swap[to_visit[i+1]][to_visit[j]])
+						continue;
+
+					std::reverse(to_visit.begin() + i + 1, to_visit.begin() + j + 1);
+					
+					auto dr = drive();
+					if (dr.is_valid() && dr.pathlen < best_dist) {
+						best_dist = dr.pathlen;
+						count2++;
+						moved = true;
+					}
+					else {
+						std::reverse(to_visit.begin() + i + 1, to_visit.begin() + j + 1);
+					}
+				}
+			}
 		}
+
+		return best_dist != original_dist;
 	}
 
 	void remove_customer(int c) {
@@ -297,9 +339,41 @@ void input_customers() {
 
 	depot = customers[0];
 
+	double max_dist = 0;
 	for (int i = 0; i < customers.size(); i++) {
 		for (int j = 0; j < customers.size(); j++) {
-			distances[i][j] = distance({ customers[i].x, customers[i].y }, { customers[j].x, customers[j].y });
+			const auto& c1 = customers[i];
+			const auto& c2 = customers[j];
+			distances[i][j] = distance({ c1.x, c1.y }, { c2.x, c2.y });
+			max_dist = std::max(max_dist, distances[i][j]);
+		}
+	}
+
+	// we can additionally restrict times of customers too far away from the depot
+	for (auto& c : customers) {
+		c.t1 = std::max(c.t1, int(distances[0][c.i]));
+		c.t2 = std::min(c.t2, int(depot.t2 - distances[c.i][0] - c.service_time));
+	}
+
+	for (int i = 0; i < customers.size(); i++) {
+		for (int j = 0; j < customers.size(); j++) {
+			const auto& c1 = customers[i];
+			const auto& c2 = customers[j];
+
+			if (c1.t1 + c1.service_time + distances[i][j] <= c2.t2) {
+				can_go_after[i][j] = true;
+			}
+
+			//if (i && j && distances[i][j] > max_dist * 0.8) // ban too-far customers from being together
+			//	can_go_after[i][j] = false;
+		}
+	}
+
+	for (int i = 0; i < customers.size(); i++) {
+		for (int j = 0; j < customers.size(); j++) {
+			if (can_go_after[i][j] && can_go_after[j][i]) {
+				can_swap[i][j] = true; // perhaps useless - rethink? only applies to customers in the same route!
+			}
 		}
 	}
 }
@@ -325,7 +399,7 @@ solution solve_greedy() {
 		r.add_customer(remaining_cs[start_idx]);
 		remaining_cs.erase(remaining_cs.begin() + start_idx);
 
-		for (int it = 0; it < 2; it++) { // TODO: can remove
+		for (int it = 0; true; it++) { // TODO: can reduce to 1 iteration
 			std::vector<int> cs = remaining_cs;
 
 			while (true) {
@@ -371,7 +445,7 @@ solution solve_greedy() {
 			}
 
 			double old_length = r.length();
-			r.shorten(); // fast
+			if (!r.shorten()) break;
 			double new_length = r.length();
 			//std::cout << old_length << " -> " << new_length << ", d = " << old_length - new_length << ", " << it << std::endl;
 		}
@@ -657,7 +731,10 @@ int main(int argc, char** argv) {
 
 		save_solution(sol);
 		std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
+		//break;
 	}
+
+	//std::cout << count1 << " " << count2 << " " << count2 * 1.0 / (count1 + count2) << std::endl;
 
 	return 0;
 }
