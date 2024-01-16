@@ -46,7 +46,7 @@ double distance(pii a, pii b) {
 	return d;
 }
  
-const int N = 5000; // Important, code will crash if customers.size() > N
+const int N = 2000; // Important, code will crash if customers.size() > N
 double distances[N][N]; // precompute, to avoid slow sqrt() calls in runtime
 bool can_go_after[N][N];
 bool can_swap[N][N];
@@ -351,6 +351,8 @@ void input_customers() {
 
 	depot = customers[0];
 
+	assert (customers.size() < N);
+
 	double max_dist = 0;
 	for (int i = 0; i < customers.size(); i++) {
 		for (int j = 0; j < customers.size(); j++) {
@@ -508,115 +510,115 @@ void save_solution(const solution& sol) {
 	//std::cout << std::endl;
 }
 
-solution anneal(solution s0, const settings& sett) {
-	const int max_iter = sett.anneal_max_iter;
+bool two_swap(solution& s0, double T) {
+	int r0idx;
+	int r1idx;
 
-	const auto two_swap = [&](double T) {
-		int r0idx;
-		int r1idx;
+	do {
+		r0idx = rand() % s0.routes.size();
+		r1idx = rand() % s0.routes.size();
+	} while (r0idx == r1idx);
 
-		do {
-			r0idx = rand() % s0.routes.size();
-			r1idx = rand() % s0.routes.size();
-		} while (r0idx == r1idx);
+	auto& r0 = s0.routes[r0idx];
+	auto& r1 = s0.routes[r1idx];
 
-		auto& r0 = s0.routes[r0idx];
-		auto& r1 = s0.routes[r1idx];
+	int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
+	int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
 
-		int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
-		int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
+	int c0 = r0.to_visit[c0idx];
+	int c1 = r1.to_visit[c1idx];
 
-		int c0 = r0.to_visit[c0idx];
-		int c1 = r1.to_visit[c1idx];
+	double old_fitness = r0.fitness() + r1.fitness();
 
-		double old_fitness = r0.fitness() + r1.fitness();
+	r0.capacity += customers[c1].capacity - customers[c0].capacity;
+	r1.capacity += customers[c0].capacity - customers[c1].capacity;
+	
+	std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
 
-		r0.capacity += customers[c1].capacity - customers[c0].capacity;
-		r1.capacity += customers[c0].capacity - customers[c1].capacity;
-		
+	if (!r0.is_valid() || !r1.is_valid()) {
+		r0.capacity += customers[c0].capacity - customers[c1].capacity;
+		r1.capacity += customers[c1].capacity - customers[c0].capacity;
+
+		std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
+		return false;
+	}
+
+	double new_fitness = r0.fitness() + r1.fitness();
+
+	double d = new_fitness - old_fitness;
+	
+	if (d > 0 && exp(-d / T) < random01()) {
+		r0.capacity += customers[c0].capacity - customers[c1].capacity;
+		r1.capacity += customers[c1].capacity - customers[c0].capacity;
+
 		std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
 
-		if (!r0.is_valid() || !r1.is_valid()) {
-			r0.capacity += customers[c0].capacity - customers[c1].capacity;
-			r1.capacity += customers[c1].capacity - customers[c0].capacity;
+		return true;
+	}
 
-			std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
-			return false;
-		}
+	return true;
+}
 
-		double new_fitness = r0.fitness() + r1.fitness();
+bool move_one(solution& s0, double T) {
+	int r0idx;
+	int r1idx;
 
-		double d = new_fitness - old_fitness;
-		
-		if (d > 0 && exp(-d / T) < random01()) {
-			r0.capacity += customers[c0].capacity - customers[c1].capacity;
-			r1.capacity += customers[c1].capacity - customers[c0].capacity;
+	do {
+		r0idx = rand() % s0.routes.size();
+		r1idx = rand() % s0.routes.size();
+	} while (r0idx == r1idx);
 
-			std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
+	auto& r0 = s0.routes[r0idx];
+	auto& r1 = s0.routes[r1idx];
 
-			return true;
-		}
+	int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
+	int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
+
+	double old_fitness = r0.fitness() + r1.fitness();
+
+	int c = r0.to_visit[c0idx];
+
+	r0.capacity -= customers[c].capacity;
+	r1.capacity += customers[c].capacity;
+	
+	r0.to_visit.erase(r0.to_visit.begin() + c0idx);
+	r1.to_visit.insert(r1.to_visit.begin() + c1idx, c);
+
+	
+	if (!r0.is_valid() || !r1.is_valid()) {
+		r0.capacity += customers[c].capacity;
+		r1.capacity -= customers[c].capacity;
+
+		r1.to_visit.erase(r1.to_visit.begin() + c1idx);
+		r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
+
+		return false;
+	}
+
+	double new_fitness = r0.fitness() + r1.fitness();
+
+	double d = new_fitness - old_fitness;
+	
+	if (d > 0 && exp(-d / T) < random01()) {
+		r0.capacity += customers[c].capacity;
+		r1.capacity -= customers[c].capacity;
+
+		r1.to_visit.erase(r1.to_visit.begin() + c1idx);
+		r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
 
 		return true;
-	};
+	}
 
-	const auto move_one = [&](double T) {
-		int r0idx;
-		int r1idx;
+	// if removed all in route 0, delete route 0
+	if (r0.to_visit.size() == 2) {
+		s0.routes.erase(s0.routes.begin() + r0idx);
+	}
 
-		do {
-			r0idx = rand() % s0.routes.size();
-			r1idx = rand() % s0.routes.size();
-		} while (r0idx == r1idx);
+	return true;
+}
 
-		auto& r0 = s0.routes[r0idx];
-		auto& r1 = s0.routes[r1idx];
-
-		int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
-		int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
-
-		double old_fitness = r0.fitness() + r1.fitness();
-
-		int c = r0.to_visit[c0idx];
-
-		r0.capacity -= customers[c].capacity;
-		r1.capacity += customers[c].capacity;
-		
-		r0.to_visit.erase(r0.to_visit.begin() + c0idx);
-		r1.to_visit.insert(r1.to_visit.begin() + c1idx, c);
-
-		
-		if (!r0.is_valid() || !r1.is_valid()) {
-			r0.capacity += customers[c].capacity;
-			r1.capacity -= customers[c].capacity;
-
-			r1.to_visit.erase(r1.to_visit.begin() + c1idx);
-			r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
-
-			return false;
-		}
-
-		double new_fitness = r0.fitness() + r1.fitness();
-
-		double d = new_fitness - old_fitness;
-		
-		if (d > 0 && exp(-d / T) < random01()) {
-			r0.capacity += customers[c].capacity;
-			r1.capacity -= customers[c].capacity;
-
-			r1.to_visit.erase(r1.to_visit.begin() + c1idx);
-			r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
-
-			return true;
-		}
-
-		// if removed all in route 0, delete route 0
-		if (r0.to_visit.size() == 2) {
-			s0.routes.erase(s0.routes.begin() + r0idx);
-		}
-
-		return true;
-	};
+solution anneal(solution s0, const settings& sett) {
+	const int max_iter = sett.anneal_max_iter;
 
 	solution best = s0;
 
@@ -633,14 +635,14 @@ solution anneal(solution s0, const settings& sett) {
 
 		if (rand01 < sett.swap_chance) {
 			// 5 retries
-			for (int i = 0; i < 500; i++)
-				if (two_swap(T))
+			for (int i = 0; i < 5; i++)
+				if (two_swap(s0, T))
 					break;
 			
 		} else if (rand01 < sett.move_chance + sett.swap_chance) {
 			// 5 retries
-			for (int i = 0; i < 500; i++)
-				if (move_one(T))
+			for (int i = 0; i < 5; i++)
+				if (move_one(s0, T))
 					break;
 		} else {
 			for (auto& r : s0.routes) 
@@ -759,14 +761,14 @@ int main(int argc, char** argv) {
 	// bool just_greedy;
 
 	settings setts[] = {
-		{ 0.2, 100000, 10, 0.7, 0.5, 0.1, 0 },
-		{ 0.1, 10000, 10, 0.5, 0.7, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 5, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 1000, 2, 0.5, 0.5, 0.1, 0 },
-		{ 0.2, 1000, 10, 0.5, 0.5, 0.1, 0 },
-		{ 0.1, 10000, 10, 0.3, 0.7, 0.1, 0 },
-		{ 0.1, 1000, 10, 0.5, 0.5, 0.1, 1 },
+		{ 0.2, 100000, 10, 0.7, 0.5, 0.01, 0 },
+		{ 0.1, 10000, 10, 0.5, 0.7, 0.05, 0 },
+		{ 0.1, 5000, 10, 0.5, 0.5, 0.02, 0 },
+		{ 0.1, 1000000, 5, 0.5, 0.5, 0.01, 0 },
+		{ 0.3, 200000, 10, 0.5, 0.5, 0.01, 0 },
+		{ 0.2, 2000, 10, 0.5, 0.5, 0.01, 0 },
+		{ 0.1, 10000, 10, 0.3, 0.7, 0.01, 0 },
+		{ 0.1, 2000, 10, 0.5, 0.5, 0.01, 1 },
 	};
 
 	for (int i = 0; i < n_threads; i++) {
