@@ -32,7 +32,7 @@ struct solution;
 std::chrono::time_point<std::chrono::steady_clock> start_time;
 int max_routes, max_capacity;
 
-std::filesystem::path input_path, output_path;
+std::filesystem::path input_path, output_path_1m, output_path_5m, output_path_un;
 
 // Helpers
 
@@ -325,7 +325,7 @@ struct solution {
 	//		 The end goal is to minimise the final number of routes
 };
 
-solution best_solution;
+solution best_solution_un, best_solution_1m, best_solution_5m;
 
 void input_customers() {
 	start_time = std::chrono::steady_clock::now();
@@ -478,10 +478,22 @@ void save_solution(const solution& sol) {
 		<< "New solution: num_routes = " << sol.routes.size()
 		<< ", pathlen = " << sol.distance << std::endl;
 
-	if (best_solution.empty() || sol < best_solution) {
-		std::cout << std::endl << "!!! Writing new solution to disk !!!" << std::endl << std::endl;
-		sol.to_file(output_path);
-		best_solution = sol;
+	if (get_time() <= std::chrono::minutes(1) && (best_solution_1m.empty() || sol < best_solution_1m)) {
+		std::cout << std::endl << "!!! Writing new 1m solution to disk: " << output_path_1m.string() << std::endl << std::endl;
+		sol.to_file(output_path_1m);
+		best_solution_1m = sol;
+	}
+
+	if (get_time() <= std::chrono::minutes(5) && (best_solution_5m.empty() || sol < best_solution_5m)) {
+		std::cout << std::endl << "!!! Writing new solution to disk: " << output_path_5m.string() << std::endl << std::endl;
+		sol.to_file(output_path_5m);
+		best_solution_5m = sol;
+	}
+
+	if (best_solution_un.empty() || sol < best_solution_un) {
+		std::cout << std::endl << "!!! Writing new solution to disk: " << output_path_un.string() << std::endl << std::endl;
+		sol.to_file(output_path_un);
+		best_solution_un = sol;
 	}
 
 	//for (const auto& r : routes) {
