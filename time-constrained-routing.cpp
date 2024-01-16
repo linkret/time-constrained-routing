@@ -175,12 +175,13 @@ struct route {
 		return best_dist != original_dist;
 	}
 
-	void remove_customer(int c) {
+	bool remove_customer(int c) {
 		auto it = std::find(to_visit.begin(), to_visit.end(), c);
 		if (it != to_visit.end()) {
 			capacity -= customers[c].capacity;
 			to_visit.erase(it);
 		}
+		return is_valid();
 	}
 
 	struct drive_result {
@@ -275,6 +276,13 @@ struct solution {
 	solution(std::vector<route> routes, double distance) : routes(routes), distance(distance) {}
 
 	bool empty() { return routes.empty(); }
+
+	double update_distance() {
+		this->distance = 0;
+		for (const auto& r : routes)
+			this->distance += r.last_run.pathlen;
+		return this->distance;
+	}
 
 	static solution from_file(const std::filesystem::path& filename) {
 		using std::string;
@@ -393,7 +401,8 @@ void input_customers() {
 }
 
 double random01() {
-	static thread_local std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+	auto thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+	static thread_local std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count() + thread_id);
 	return std::uniform_real_distribution<double>(0, 1)(rng);
 }
 
@@ -528,33 +537,44 @@ bool two_swap(solution& s0, double T) {
 	int c0 = r0.to_visit[c0idx];
 	int c1 = r1.to_visit[c1idx];
 
-	double old_fitness = r0.fitness() + r1.fitness();
+		int new_r0c = r0.capacity + customers[c1].capacity - customers[c0].capacity;
+		int new_r1c = r1.capacity + customers[c0].capacity - customers[c1].capacity;
+		
+		if (new_r0c > max_capacity || new_r1c > max_capacity) {
+			return false;
+		}
+		
+		double old_fitness = r0.last_run.fitness() + r1.last_run.fitness();
+		
+		r0.remove_customer(c0);
+		r0.add_customer(c1);
+		r1.remove_customer(c1);
+		r1.add_customer(c0);
+		s0.update_distance();
 
-	r0.capacity += customers[c1].capacity - customers[c0].capacity;
-	r1.capacity += customers[c0].capacity - customers[c1].capacity;
-	
-	std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
+		if (!r0.last_run.is_valid() || !r1.last_run.is_valid()) {
+			r0.remove_customer(c1);
+			r0.add_customer(c0);
+			r1.remove_customer(c0);
+			r1.add_customer(c1);
+			s0.update_distance();
 
-	if (!r0.is_valid() || !r1.is_valid()) {
-		r0.capacity += customers[c0].capacity - customers[c1].capacity;
-		r1.capacity += customers[c1].capacity - customers[c0].capacity;
+			return false;
+		}
 
-		std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
-		return false;
-	}
+		double new_fitness = r0.last_run.fitness() + r1.last_run.fitness();
+		
+		double d = new_fitness - old_fitness;
+		
+		if (d > 0 && exp(-d / T) < random01()) {
+			r0.remove_customer(c1);
+			r0.add_customer(c0);
+			r1.remove_customer(c0);
+			r1.add_customer(c1);
+			s0.update_distance();
 
-	double new_fitness = r0.fitness() + r1.fitness();
-
-	double d = new_fitness - old_fitness;
-	
-	if (d > 0 && exp(-d / T) < random01()) {
-		r0.capacity += customers[c0].capacity - customers[c1].capacity;
-		r1.capacity += customers[c1].capacity - customers[c0].capacity;
-
-		std::swap(r0.to_visit[c0idx], r1.to_visit[c1idx]);
-
-		return true;
-	}
+			return true;
+		}
 
 	return true;
 }
@@ -571,43 +591,39 @@ bool move_one(solution& s0, double T) {
 	auto& r0 = s0.routes[r0idx];
 	auto& r1 = s0.routes[r1idx];
 
-	int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
-	int c1idx = rand() % (r1.to_visit.size() - 2) + 1;
+		int c0idx = rand() % (r0.to_visit.size() - 2) + 1;
 
-	double old_fitness = r0.fitness() + r1.fitness();
+		double old_fitness = r0.last_run.fitness() + r1.last_run.fitness();
 
 	int c = r0.to_visit[c0idx];
 
-	r0.capacity -= customers[c].capacity;
-	r1.capacity += customers[c].capacity;
-	
-	r0.to_visit.erase(r0.to_visit.begin() + c0idx);
-	r1.to_visit.insert(r1.to_visit.begin() + c1idx, c);
-
-	
-	if (!r0.is_valid() || !r1.is_valid()) {
-		r0.capacity += customers[c].capacity;
-		r1.capacity -= customers[c].capacity;
-
-		r1.to_visit.erase(r1.to_visit.begin() + c1idx);
-		r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
+		if (r1.capacity + customers[c].capacity > max_capacity) {
+			return false;
+		}
+		
+		r0.remove_customer(c);
+		r1.add_customer(c);
+		s0.update_distance();
+		
+		if (!r0.last_run.is_valid() || !r1.last_run.is_valid()) {
+			r1.remove_customer(c);
+			r0.add_customer(c);
+			s0.update_distance();
 
 		return false;
 	}
 
-	double new_fitness = r0.fitness() + r1.fitness();
+		double new_fitness = r0.fitness() + r1.fitness() - (r0.to_visit.size() == 2) * -1e9;
 
-	double d = new_fitness - old_fitness;
-	
-	if (d > 0 && exp(-d / T) < random01()) {
-		r0.capacity += customers[c].capacity;
-		r1.capacity -= customers[c].capacity;
+		double d = new_fitness - old_fitness;
+		
+		if (d > 0 && exp(-d / T) < random01()) {
+			r1.remove_customer(c);
+			r0.add_customer(c);
+			s0.update_distance();
 
-		r1.to_visit.erase(r1.to_visit.begin() + c1idx);
-		r0.to_visit.insert(r0.to_visit.begin() + c0idx, c);
-
-		return true;
-	}
+			return true;
+		}
 
 	// if removed all in route 0, delete route 0
 	if (r0.to_visit.size() == 2) {
@@ -648,6 +664,11 @@ solution anneal(solution s0, const settings& sett) {
 			for (auto& r : s0.routes) 
 				r.shorten();
 		}
+
+		if (s0 < best) {
+			if (s0.routes.size() != best.routes.size()) std::cout << "!!! ANNEAL ELIMINATED A ROUTE !!!" << std::endl;;
+			best = s0;
+		}
 	}
 
 	double pathlen = 0;
@@ -667,7 +688,8 @@ solution anneal(solution s0, const settings& sett) {
 }
 
 void runner(const settings& sett) {	
-	srand(time(0));
+	auto thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+	srand(time(0) + thread_id);
 	
 	double time_lim = 60. * 60.;
 	int best_num_routes = 1e9;
