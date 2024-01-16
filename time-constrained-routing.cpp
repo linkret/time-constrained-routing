@@ -15,7 +15,6 @@
 
 // Settings
 struct {
-	double allowed_gap;
 	int anneal_max_iter;
 	double starting_T;
 	double swap_chance;
@@ -692,7 +691,7 @@ void runner(const settings& sett) {
 	srand(time(0) + thread_id);
 	
 	double time_lim = 60. * 60.;
-	int best_num_routes = 1e9;
+	size_t best_num_routes = 1e9;
 
 	while (true) {
 		if (get_time().count() / 1000.0 >= time_lim) {
@@ -701,6 +700,7 @@ void runner(const settings& sett) {
 		}
 
 		auto sol = solve_greedy(sett);
+		best_num_routes = std::min(best_num_routes, sol.routes.size());
 
 		save_solution(sol);
 
@@ -710,11 +710,12 @@ void runner(const settings& sett) {
 			continue;
 		}
 
-		if (sol.routes.size() > sett.allowed_gap + best_num_routes) {
+		if (sol.routes.size() > 1 + best_num_routes) {
 			continue;
 		}
 
 		sol = anneal(sol, sett);
+		best_num_routes = std::min(best_num_routes, sol.routes.size());
 
 		// std::cout << "Annealed solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
 
@@ -784,14 +785,14 @@ int main(int argc, char** argv) {
 	// bool just_greedy;
 
 	settings setts[] = {
-		{ 0.0, 100000, 100, 0.1, 0.9, 0.0005, 0 },
-		{ 0.0, 100000, 10, 0.2, 0.8, 0.001, 0 },
-		{ 0.0, 100000, 10, 0.05, 0.95, 0.003, 0 },
-		{ 0.0, 100000, 50, 0.5, 0.5, 0.002, 0 },
-		{ 0.0, 100000, 10, 0.9, 0.1, 0.001, 0 },
-		{ 0.0, 100000, 10, 0.1, 0.9, 0.005, 0 },
-		{ 0.0, 100000, 10, 0.3, 0.7, 0.001, 0 },
-		{ 0.0, 0, 0, 0, 0, 0, 1 },
+		{ 100000, 100, 0.1, 0.9, 0.0005, 0 },
+		{ 100000, 10, 0.2, 0.8, 0.001, 0 },
+		{ 100000, 10, 0.05, 0.95, 0.003, 0 },
+		{ 100000, 50, 0.5, 0.5, 0.002, 0 },
+		{ 100000, 10, 0.9, 0.1, 0.001, 0 },
+		{ 100000, 10, 0.1, 0.9, 0.005, 0 },
+		{ 100000, 10, 0.3, 0.7, 0.001, 0 },
+		{ 0, 0, 0, 0, 0, 1 },
 	};
 
 	for (int i = 0; i < n_threads; i++) {
