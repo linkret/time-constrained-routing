@@ -766,7 +766,6 @@ int main(int argc, char** argv) {
 	}
 
 	input_path = std::filesystem::path(argv[1]);
-
 	input_customers();
 
 	if (argc == 2) {
