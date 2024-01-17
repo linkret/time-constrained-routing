@@ -21,6 +21,7 @@ struct {
 	double move_chance;
 	double shorten_chance;
 	bool just_greedy;
+	bool just_anneal;
 } typedef settings;
 
 
@@ -84,6 +85,8 @@ struct route {
 	}
 
 	route(std::vector<int> to_visit) : to_visit(to_visit) {
+		for (int c : to_visit)
+			capacity += customers[c].capacity;
 		assert(to_visit.size() >= 2);
 		assert(to_visit.front() == 0);
 		assert(to_visit.back() == 0);
@@ -190,14 +193,14 @@ struct route {
 		// different parameters have different weights
 		double fitness() const {
 			double fitness = 0;
-			fitness += t * 0.01;
-			fitness += pathlen * 0.5;
-			//fitness += late_cnt * 10;
+			fitness += t * 0.005; // 0.003
+			fitness += pathlen * 0.15; // for inst3. 0.15
+			fitness += late_cnt * 100;
 			fitness += late_sum * 1;
 			if (capacity > max_capacity)
 				fitness += (capacity - max_capacity) * 10;
 			else
-				fitness += (max_capacity - capacity) * 0.005;
+				fitness += (max_capacity - capacity) * 0.005; // 0.005
 			return fitness;
 		}
 
@@ -419,7 +422,19 @@ solution solve_greedy(const settings& sett) {
 	while (remaining_cs.size() != 0) {
 		route r;
 
-		int start_idx = rand() % remaining_cs.size();
+		// special case, semi-randomize first index
+		int start_idx = rand() % remaining_cs.size(), start_fitness = 1e9;
+
+		for (int i = 0; i < remaining_cs.size() / 3; i++) {
+			int pot_idx = rand() % remaining_cs.size();
+			r.add_customer(remaining_cs[pot_idx]);
+			if (r.last_run.is_valid() && r.last_run.fitness() < start_fitness) {
+				start_idx = pot_idx;
+				start_fitness = r.last_run.fitness();
+			}
+			r.remove_customer(remaining_cs[pot_idx]);
+		}
+
 		r.add_customer(remaining_cs[start_idx]);
 		remaining_cs.erase(remaining_cs.begin() + start_idx);
 
@@ -482,7 +497,7 @@ solution solve_greedy(const settings& sett) {
 	return solution(routes, pathlen);
 }
 
-void save_solution(const solution& sol) {
+void save_solution(const solution& sol, bool only_unlimited = false) {
 
 	// static mutex
 	static std::mutex mtx;
@@ -494,13 +509,13 @@ void save_solution(const solution& sol) {
 		<< "New solution: num_routes = " << sol.routes.size()
 		<< ", pathlen = " << sol.distance << std::endl;
 
-	if (get_time() <= std::chrono::minutes(1) && (best_solution_1m.empty() || sol < best_solution_1m)) {
+	if (!only_unlimited && get_time() <= std::chrono::minutes(1) && (best_solution_1m.empty() || sol < best_solution_1m)) {
 		std::cout << "!!! Writing new 1m solution to disk: " << output_path_1m.string() << std::endl;
 		sol.to_file(output_path_1m);
 		best_solution_1m = sol;
 	}
 
-	if (get_time() <= std::chrono::minutes(5) && (best_solution_5m.empty() || sol < best_solution_5m)) {
+	if (!only_unlimited && get_time() <= std::chrono::minutes(5) && (best_solution_5m.empty() || sol < best_solution_5m)) {
 		std::cout << "!!! Writing new solution to disk: " << output_path_5m.string() << std::endl;
 		sol.to_file(output_path_5m);
 		best_solution_5m = sol;
@@ -584,8 +599,11 @@ bool move_one(solution& s0, double T) {
 
 	do {
 		r0idx = rand() % s0.routes.size();
-		r1idx = rand() % s0.routes.size();
+		r1idx = rand() % (s0.routes.size() - 0); // -1, if we don't even try to move into the last route
 	} while (r0idx == r1idx);
+
+	//if (rand() % 100)
+	//	r0idx = s0.routes.size() - 1;
 
 	auto& r0 = s0.routes[r0idx];
 	auto& r1 = s0.routes[r1idx];
@@ -612,7 +630,7 @@ bool move_one(solution& s0, double T) {
 		return false;
 	}
 
-	double new_fitness = r0.fitness() + r1.fitness() - (r0.to_visit.size() == 2) * -1e9;
+	double new_fitness = r0.fitness() + r1.fitness() - (r0idx == s0.routes.size() - 1) * -1e9;
 
 	double d = new_fitness - old_fitness;
 		
@@ -627,6 +645,12 @@ bool move_one(solution& s0, double T) {
 	// if removed all in route 0, delete route 0
 	if (r0.to_visit.size() == 2) {
 		s0.routes.erase(s0.routes.begin() + r0idx);
+
+		// ensure shortest route is in the last position
+		for (int i = 0; i < s0.routes.size(); i++) {
+			if (s0.routes[i].to_visit.size() < s0.routes.back().to_visit.size())
+				std::swap(s0.routes[i], s0.routes.back());
+		}
 	}
 
 	return true;
@@ -665,7 +689,7 @@ solution anneal(solution s0, const settings& sett) {
 		}
 
 		if (s0 < best) {
-			if (s0.routes.size() != best.routes.size()) std::cout << "!!! ANNEAL ELIMINATED A ROUTE !!!" << std::endl;;
+			if (s0.routes.size() != best.routes.size()) std::cout << "!!! ANNEAL ELIMINATED A ROUTE !!!" << std::endl << std::endl;
 			best = s0;
 		}
 	}
@@ -691,7 +715,9 @@ void runner(const settings& sett) {
 	srand(time(0) + thread_id);
 	
 	double time_lim = 60. * 60.;
-	size_t best_num_routes = 1e9;
+	size_t best_num_routes = best_solution_1m.empty() ? 1e9 : best_solution_1m.routes.size();
+
+	solution sol;
 
 	while (true) {
 		if (get_time().count() / 1000.0 >= time_lim) {
@@ -699,10 +725,16 @@ void runner(const settings& sett) {
 			break;
 		}
 
-		auto sol = solve_greedy(sett);
-		best_num_routes = std::min(best_num_routes, sol.routes.size());
+		if (!sett.just_anneal) {
+			sol = solve_greedy(sett);
+			best_num_routes = std::min(best_num_routes, sol.routes.size());
 
-		save_solution(sol);
+			save_solution(sol);
+		}
+		else {
+			sol = best_solution_un; // unsafe, could be changing at the moment
+			best_num_routes = sol.routes.size();
+		}
 
 		// std::cout << "Greedy solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
 
@@ -710,7 +742,8 @@ void runner(const settings& sett) {
 			continue;
 		}
 
-		if (sol.routes.size() > 1 + best_num_routes) {
+		//if (sol.routes.size() > best_num_routes) {
+		if (sol.routes.size() > best_num_routes) {
 			continue;
 		}
 
@@ -720,7 +753,7 @@ void runner(const settings& sett) {
 		// std::cout << "Annealed solution: num_routes = " << sol.routes.size() << ", pathlen = " << sol.distance << std::endl;
 
 		std::cout << "Anneal: ";
-		save_solution(sol);
+		save_solution(sol, sett.just_anneal);
 		// std::cout << "Currently at " << get_time().count() / 1000.0 << "s\n";
 		//break;
 	}
@@ -733,6 +766,8 @@ int main(int argc, char** argv) {
 	}
 
 	input_path = std::filesystem::path(argv[1]);
+
+	input_customers();
 
 	if (argc == 2) {
 		auto ifname = input_path.filename().string();
@@ -767,12 +802,13 @@ int main(int argc, char** argv) {
 			<< "Old solution unlimited: num_routes = " << best_solution_un.routes.size()
 			<< ", pathlen = " << best_solution_un.distance << std::endl;
 	}
-
-	input_customers();
+	else {
+		best_solution_un = solve_greedy({});
+	}
 
 	// runner();
 
-	const int n_threads = 1;
+	const int n_threads = 8;
 
 	std::vector<std::thread> threads(n_threads);
 
@@ -785,14 +821,14 @@ int main(int argc, char** argv) {
 	// bool just_greedy;
 
 	settings setts[] = {
-		{ 100000, 100, 0.1, 0.9, 0.0005, 0 },
-		{ 100000, 10, 0.2, 0.8, 0.001, 0 },
-		{ 100000, 10, 0.05, 0.95, 0.003, 0 },
-		{ 100000, 50, 0.5, 0.5, 0.002, 0 },
-		{ 100000, 10, 0.9, 0.1, 0.001, 0 },
-		{ 100000, 10, 0.1, 0.9, 0.005, 0 },
-		{ 100000, 10, 0.3, 0.7, 0.001, 0 },
-		{ 0, 0, 0, 0, 0, 1 },
+		{ 75000, 5, 0.1, 0.9, 0.0005, 0, 0 },
+		{ 150000, 1, 0.3, 0.8, 0.001, 0, 0 },
+		{ 100000, 2, 0.05, 0.95, 0.0015, 0, 0 },
+		{ 50000, 0.5, 0.02, 0.9, 0.002, 0, 1 },
+		{ 50000, 50, 0.5, 0.5, 0.001, 0, 0 },
+		{ 100000, 1, 0.4, 0.6, 0.005, 0, 0 },
+		{ 200000, 10, 0.3, 0.7, 0.001, 0, 0 },
+		{ 0, 0, 0, 0, 0, 1, 0 },
 	};
 
 	for (int i = 0; i < n_threads; i++) {
