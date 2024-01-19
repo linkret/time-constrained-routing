@@ -5,7 +5,9 @@ Solving "The Capacitated Vehicle Routing Problem with Time Windows" (CVRPTW)
 
 Folder `sol-instances` contains Solomon's instances (http://web.cba.neu.edu/~msolomon/problems.htm), with sizes up to 100 vehicles. The solver was tried on some of them, an immediately constructed feasible solutions with minimal number of vehicles. The sum of travelled distances was within a few percentage points compared to the best known solutions cross-referenced online.
 
-In the future, we will acquire bigger instances and run the solver on all of them - then precisely document our best achieved results.
+Folder `homberger-1000-instances` constains Homberger's 1000-customer instances (https://www.sintef.no/projectweb/top/vrptw/1000-customers/). Here we find some that our solver does not discover the minimal number of vehicles, at least not in a timespan of one minute. It succeeds in finding it for some instances, but not all. And when it does discover them, the distance is up to 20% worse than best-known solutions.
+
+In the future, we will acquire more instances and systematically run the solver on all of them - then precisely document our best achieved results, and use the results to further optimize the solution.
 
 # Usage
 
