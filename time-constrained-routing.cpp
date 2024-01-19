@@ -347,7 +347,15 @@ void input_customers() {
 	std::ifstream file(input_path);
 	std::string ignore;
 
-	std::getline(file, ignore); file.ignore();
+	if (file.fail()) {
+		std::cerr << "Cannot open input file! Aborting...\n";
+		exit(0);
+	}
+
+	do {
+		std::getline(file, ignore); file.ignore();
+	} while (ignore != "VEHICLE");
+
 	std::getline(file, ignore);
 	file >> max_routes >> max_capacity;
 
@@ -770,11 +778,10 @@ int main(int argc, char** argv) {
 
 	if (argc == 2) {
 		auto ifname = input_path.filename().string();
-		std::string icnt = ifname.substr(4, 1); // "inst7.txt" -> "7"
 		
-		auto fname_1m = "res-1m-i" + icnt + ".txt";
-		auto fname_5m = "res-5m-i" + icnt + ".txt";
-		auto fname_un = "res-un-i" + icnt + ".txt";
+		auto fname_1m = "res-1m-" + ifname;
+		auto fname_5m = "res-5m-" + ifname;
+		auto fname_un = "res-un-" + ifname;
 
 		output_path_1m = input_path.parent_path().parent_path().append("res").append(fname_1m);
 		output_path_5m = input_path.parent_path().parent_path().append("res").append(fname_5m);
